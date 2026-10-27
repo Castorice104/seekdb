@@ -68,6 +68,7 @@ private:
   ObArray<ObStringBuffer *> response_buffers_;
   // atomic boolean value, used to check if the batch task is finished
   std::atomic<bool> is_finished_;
+  int batch_error_;
   int64_t max_retry_times_;
   int64_t abs_timeout_ts_;
   int64_t timeout_sec_;

@@ -1,0 +1,30 @@
+# Requires unittest/sql/engine/expr/ai_function_mock.py on port 8000.
+--disable_query_log
+call DBMS_AI_SERVICE.CREATE_AI_MODEL('reg_embed', '{"type":"dense_embedding","model_name":"embedding-regression"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('reg_embed_ep', '{"ai_model_name":"reg_embed","scope":"all","url":"http://127.0.0.1:8000/compatible-mode/v1/embeddings","access_key":"mock-key","provider":"openai"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL('reg_embed_other', '{"type":"dense_embedding","model_name":"embedding-other"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('reg_embed_other_ep', '{"ai_model_name":"reg_embed_other","scope":"all","url":"http://127.0.0.1:8000/compatible-mode/v1/embeddings","access_key":"mock-key","provider":"openai"}');
+create table ai_embed_regression(id int primary key, model varchar(64), content longtext, dim int);
+insert into ai_embed_regression values (1,'reg_embed','alpha',3),(2,'reg_embed',null,3),(3,'reg_embed_other','gamma',5),(4,'reg_embed','delta',3),(5,'reg_embed_other','epsilon',7);
+select ai_embed('reg_embed', null) is null as null_content;
+select id, json_length(ai_embed(model, content, dim)) as dim from ai_embed_regression order by id;
+select id, json_length(ai_embed(model, content, dim)) as dim from ai_embed_regression where id > 2 order by id limit 2;
+select json_length(ai_embed('reg_embed', content, 3)) as lob_dimension from (select repeat('long-text-',10000) as content) t;
+call DBMS_AI_SERVICE.CREATE_AI_MODEL('reg_rerank', '{"type":"rerank","model_name":"rerank-regression"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('reg_rerank_ep', '{"ai_model_name":"reg_rerank","scope":"all","url":"http://127.0.0.1:8000/v1/rerank","access_key":"mock-key","provider":"siliconflow"}');
+select json_extract(ai_rerank('reg_rerank','x','["x","xx","x","none"]',null),'$[*].index') as ranked_indices;
+set @docs='[{"id":"a","text":"x"},{"id":"b","text":"xx"},{"id":"c","text":"x"}]';
+select json_extract(ai_rerank('reg_rerank','x',@docs,'text'),'$[*].id') as ranked_ids;
+# 23 documents force a 20-document batch followed by an uneven final batch.
+set @docs=concat('[',repeat('"x",',20),'"xxx","x","none"]');
+select json_extract(ai_rerank('reg_rerank','x',@docs),'$[*].index') as global_indices;
+set @docs=concat('[',repeat('{"id":"tie","text":"x"},',20),'{"id":"winner","text":"xxx"},{"id":"last-tie","text":"x"},{"id":"zero","text":"none"}]');
+select json_unquote(json_extract(r,'$[0].id')) as first_id,json_unquote(json_extract(r,'$[21].id')) as last_tie_id,json_length(r) as count from (select ai_rerank('reg_rerank','x',@docs,'text') as r) t;
+drop table ai_embed_regression;
+call DBMS_AI_SERVICE.DROP_AI_MODEL('reg_embed');
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('reg_embed_ep');
+call DBMS_AI_SERVICE.DROP_AI_MODEL('reg_embed_other');
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('reg_embed_other_ep');
+call DBMS_AI_SERVICE.DROP_AI_MODEL('reg_rerank');
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('reg_rerank_ep');
+--enable_query_log

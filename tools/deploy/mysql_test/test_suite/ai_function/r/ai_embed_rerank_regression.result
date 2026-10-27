@@ -1,0 +1,21 @@
+null_content
+1
+id	dim
+1	3
+2	NULL
+3	5
+4	3
+5	7
+id	dim
+3	5
+4	3
+lob_dimension
+3
+ranked_indices
+[1, 0, 2, 3]
+ranked_ids
+["b", "a", "c"]
+global_indices
+[20, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22]
+first_id	last_tie_id	count
+winner	last-tie	23
