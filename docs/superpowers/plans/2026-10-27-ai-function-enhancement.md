@@ -48,7 +48,7 @@ Files: unittest/sql/engine/expr/ai_function_mock.py and established regression t
 - [x] Configure/build release and relevant unit tests using WSL installed dependencies.
 - [x] Run local deterministic Mock HTTP service; run public enhancement SQL and targeted negative/batch cases against the rebuilt server.
 - [x] Review integrated diff for regressions, run git diff --check and relevant tests.
-- [ ] Record actual commands and outcomes, commit and push private origin branch; report exact commit/branch and limitations.
+- [x] Record actual commands and outcomes, commit and push private origin branch; report exact commit/branch and limitations.
 
 ## Verification record (2026-10-27)
 
@@ -59,3 +59,5 @@ Files: unittest/sql/engine/expr/ai_function_mock.py and established regression t
 - Review found Dashscope text_index reordering and missing batch-failure execution coverage. Added two tests, observed both fail, fixed indexed decoding, then verified green; added real later-group failure/recovery test.
 - Runtime uncovered nullable credential persistence after ALTER Ollama endpoint; normalized keyless writes and nullable reads, then verified the public suite and explicit storage assertion.
 - Official competition scoring is external and has not been submitted or claimed here.
+
+- Implementation commit `3ee4b31c5b4e1b6944f8d26f13a3f5f6cb0d134a` was pushed to private origin branch `feat/ai-function-enhancement`; remote SHA was verified. Subsequent documentation-only commits do not change the verified implementation.
