@@ -41,7 +41,6 @@
 #include "../../../src/sql/parser/sql_parser_base.h"
 
 #define GEN_EXPLAN_STMT(no_use, explain_stmt, explain_type, display_type, stmt, into_table, set_statement_id) \
-  (void)(no_use); \
   ParseNode *type_node = NULL; \
   ParseNode *display_node = NULL; \
   if (0 != explain_type) { \
@@ -50,8 +49,8 @@
   if (0 != display_type) { \
     malloc_terminal_node(display_node, result->malloc_pool_, display_type); \
   } \
-  malloc_non_terminal_node(explain_stmt, result->malloc_pool_, T_EXPLAIN, 5, \
-                           type_node, display_node, into_table, set_statement_id, stmt);
+  malloc_non_terminal_node(explain_stmt, result->malloc_pool_, T_EXPLAIN, 6, \
+                           type_node, display_node, into_table, set_statement_id, stmt, no_use);
 %}
 
 %destructor {destroy_tree($$);}<node>
@@ -405,7 +404,7 @@ END_P SET_VAR DELIMITER
 %type <node> opt_limit_clause limit_expr opt_lock_type opt_for_update opt_for_update_wait opt_lock_in_share_mode
 %type <node> sort_list sort_key opt_asc_desc sort_list_for_group_by sort_key_for_group_by opt_asc_desc_for_group_by sort_list_opt_null sort_key_opt_null opt_asc_desc_null
 %type <node> opt_query_expression_option_list query_expression_option_list query_expression_option opt_distinct opt_distinct_or_all opt_separator projection
-%type <node> from_list table_references table_reference table_factor normal_relation_factor dot_relation_factor relation_factor
+%type <node> from_list table_references table_reference table_factor normal_relation_factor dot_relation_factor relation_factor file_sql_func_table file_sql_func_arg_list file_sql_func_arg file_sql_func_value file_sql_option_key copy_stmt copy_option_list copy_option opt_copy_options
 %type <node> relation_factor_in_hint relation_factor_in_hint_list relation_factor_in_pq_hint opt_relation_factor_in_hint_list relation_factor_in_use_join_hint_list
 %type <node> relation_factor_in_leading_hint_list joined_table tbl_name table_subquery table_subquery_alias
 %type <node> relation_factor_with_star relation_with_star_list opt_with_star
@@ -582,6 +581,7 @@ stmt:
   | drop_table_stmt         { $$ = $1; check_question_mark($$, result); }
   | drop_view_stmt          { $$ = $1; check_question_mark($$, result); }
   | explain_stmt            { $$ = $1; question_mark_issue($$, result); }
+  | copy_stmt               { $$ = $1; question_mark_issue($$, result); }
   | create_outline_stmt     { $$ = $1; question_mark_issue($$, result); }
   | alter_outline_stmt      { $$ = $1; question_mark_issue($$, result); }
   | drop_outline_stmt       { $$ = $1; check_question_mark($$, result); }
@@ -10848,6 +10848,10 @@ tbl_name
 {
   $$ = $1;
 }
+| file_sql_func_table
+{
+  $$ = $1;
+}
 ;
 
 tbl_name:
@@ -12256,6 +12260,96 @@ $$ = NULL;
  *	explain grammar
  *
  *****************************************************************************/
+copy_stmt:
+COPY '(' select_no_parens ')' TO STRING_VALUE opt_copy_options
+{
+  ParseNode *into_node = NULL;
+  $$ = $3;
+  if (NULL == $$) {
+    yyerror(&@2, result, "invalid COPY statement");
+    YYERROR;
+  } else if (NULL != $$->children_[PARSE_SELECT_INTO]) {
+    yyerror(&@2, result, "");
+    YYERROR;
+  } else if (OB_UNLIKELY($$->type_ != T_SELECT)) {
+    yyerror(&@2, result, "COPY only supports SELECT query");
+    YYERROR;
+  } else {
+    malloc_non_terminal_node(into_node, result->malloc_pool_, T_COPY_INTO, 2, $6, $7);
+    $$->children_[PARSE_SELECT_INTO_EXTRA] = into_node;
+  }
+}
+| COPY relation_factor TO STRING_VALUE opt_copy_options
+{
+  ParseNode *star_node = NULL;
+  ParseNode *project_node = NULL;
+  ParseNode *project_list = NULL;
+  ParseNode *from_list = NULL;
+  ParseNode *into_node = NULL;
+  ParseNode *select_node = NULL;
+  malloc_terminal_node(star_node, result->malloc_pool_, T_STAR);
+  malloc_non_terminal_node(project_node, result->malloc_pool_, T_PROJECT_STRING, 1, star_node);
+  dup_string_to_node(project_node, result->malloc_pool_, "*");
+  merge_nodes(project_list, result, T_PROJECT_LIST, project_node);
+  merge_nodes(from_list, result, T_FROM_LIST, $2);
+  malloc_non_terminal_node(into_node, result->malloc_pool_, T_COPY_INTO, 2, $4, $5);
+  malloc_select_node(select_node, result->malloc_pool_);
+  select_node->children_[PARSE_SELECT_SELECT] = project_list;
+  select_node->children_[PARSE_SELECT_FROM] = from_list;
+  select_node->children_[PARSE_SELECT_INTO] = into_node;
+  $$ = select_node;
+}
+;
+
+opt_copy_options:
+/* empty */
+{
+  $$ = NULL;
+}
+| '(' copy_option_list ')'
+{
+  $$ = $2;
+}
+;
+
+copy_option_list:
+copy_option
+{
+  malloc_list_node($$, result->malloc_pool_, T_EXPR_LIST, 2, 1, $1);
+}
+| copy_option_list ',' copy_option
+{
+  push_back_list(result->malloc_pool_, result, $$, $1, $3);
+}
+;
+
+copy_option:
+file_sql_option_key
+{
+  $$ = $1;
+}
+| file_sql_option_key relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_ARG, 2, $1, $2);
+}
+| file_sql_option_key STRING_VALUE
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_ARG, 2, $1, $2);
+}
+| file_sql_option_key COMP_EQ STRING_VALUE
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_ARG, 2, $1, $3);
+}
+| file_sql_option_key COMP_EQ relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_ARG, 2, $1, $3);
+}
+| file_sql_option_key COMP_EQ INTNUM
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_ARG, 2, $1, $3);
+}
+;
+
 explain_stmt:
 explain_or_desc relation_factor opt_desc_column_option
 {
@@ -12300,14 +12394,22 @@ explain_or_desc relation_factor opt_desc_column_option
 | explain_or_desc FORMAT COMP_EQ format_name explainable_stmt
 {
   (void)($1);
-  malloc_non_terminal_node($$, result->malloc_pool_, T_EXPLAIN, 5, $4, NULL, NULL, NULL, $5);
+  malloc_non_terminal_node($$, result->malloc_pool_, T_EXPLAIN, 6, $4, NULL, NULL, NULL, $5, NULL);
 }
 ;
 
 explain_or_desc:
 EXPLAIN {$$ = NULL;}
-| DESCRIBE {$$ = NULL;}
-| DESC  {$$ = NULL;}
+| DESCRIBE
+{
+  malloc_terminal_node($$, result->malloc_pool_, T_INT);
+  $$->value_ = 1;
+}
+| DESC
+{
+  malloc_terminal_node($$, result->malloc_pool_, T_INT);
+  $$->value_ = 1;
+}
 ;
 
 explainable_stmt:
@@ -17448,6 +17550,106 @@ UNNEST '(' simple_expr_list ')'
 | UNNEST '(' simple_expr_list ')' AS relation_name '(' relation_name_list ')'
 {
   malloc_non_terminal_node($$, result->malloc_pool_, T_UNNEST_EXPRESSION, 3, $3, $6, $8);
+}
+;
+
+file_sql_func_table:
+NAME_OB '(' file_sql_func_arg_list ')'
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $1, $3, NULL);
+}
+| NAME_OB '(' file_sql_func_arg_list ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $1, $3, $5);
+}
+| NAME_OB '(' file_sql_func_arg_list ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $1, $3, $6);
+}
+;
+
+file_sql_func_arg_list:
+file_sql_func_arg
+{
+  malloc_list_node($$, result->malloc_pool_, T_EXPR_LIST, 2, 1, $1);
+}
+| file_sql_func_arg_list ',' file_sql_func_arg
+{
+  push_back_list(result->malloc_pool_, result, $$, $1, $3);
+}
+;
+
+file_sql_func_arg:
+file_sql_func_value
+{
+  $$ = $1;
+}
+| file_sql_option_key COMP_EQ file_sql_func_value
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_ARG, 2, $1, $3);
+}
+;
+
+file_sql_option_key:
+NAME_OB
+{
+  $$ = $1;
+}
+| FORMAT
+{
+  get_non_reserved_node($$, result->malloc_pool_, @1.first_column, @1.last_column);
+}
+| ESCAPE
+{
+  get_non_reserved_node($$, result->malloc_pool_, @1.first_column, @1.last_column);
+}
+| DELIMITER
+{
+  get_non_reserved_node($$, result->malloc_pool_, @1.first_column, @1.last_column);
+}
+| COMPRESSION
+{
+  get_non_reserved_node($$, result->malloc_pool_, @1.first_column, @1.last_column);
+}
+| COLUMNS
+{
+  get_non_reserved_node($$, result->malloc_pool_, @1.first_column, @1.last_column);
+}
+;
+
+file_sql_func_value:
+STRING_VALUE
+{
+  $$ = $1;
+}
+| INTNUM
+{
+  $$ = $1;
+}
+| APPROXNUM
+{
+  $$ = $1;
+}
+| DECIMAL_VAL
+{
+  $$ = $1;
+}
+| BOOL_VALUE
+{
+  $$ = $1;
+}
+| NULLX
+{
+  $$ = $1;
+}
+| NAME_OB
+{
+  $$ = $1;
+}
+| '-' INTNUM
+{
+  $$ = $2;
+  $$->value_ = -$$->value_;
 }
 ;
 

@@ -1654,6 +1654,9 @@ int ObSelectResolver::expand_target_list(
   } else if (table_item.is_json_table()) {
     if (OB_FAIL(resolve_all_json_table_columns(table_item, &column_items))) {
     }
+  } else if (table_item.is_file_table()) {
+    if (OB_FAIL(resolve_all_file_table_columns(table_item, column_items))) {
+    }
   } else if (table_item.is_values_table()) {
     if (OB_ISNULL(get_stmt()) || OB_UNLIKELY(get_stmt()->get_column_size() == 0)) {
       ret = OB_ERR_UNEXPECTED;
@@ -3104,7 +3107,12 @@ int ObSelectResolver::resolve_into_clause(const ParseNode *node)
     } else {
       new(into_item) ObSelectIntoItem();
       into_item->into_type_ = node->type_;
-      if (T_INTO_OUTFILE == node->type_) { // into outfile
+      if (T_COPY_INTO == node->type_) {
+        if (OB_UNLIKELY(2 != node->num_child_)) {
+          ret = OB_ERR_UNEXPECTED;
+        } else if (OB_FAIL(resolve_copy_into(*node, *into_item))) {
+        }
+      } else if (T_INTO_OUTFILE == node->type_) { // into outfile
         if (is_in_set_query()) {
           ret = OB_INAPPROPRIATE_INTO;
         } else if (node->num_child_ == 3 && NULL != node->children_[1]
@@ -3137,6 +3145,217 @@ int ObSelectResolver::resolve_into_clause(const ParseNode *node)
   return ret;
 }
 
+
+namespace {
+
+struct CopyOptionValue
+{
+  CopyOptionValue()
+    : is_string_(false), is_int_(false), is_bool_(false), is_null_(false),
+      str_(), int_value_(0), bool_value_(false) {}
+  bool is_string_;
+  bool is_int_;
+  bool is_bool_;
+  bool is_null_;
+  common::ObString str_;
+  int64_t int_value_;
+  bool bool_value_;
+};
+
+int get_copy_option_value(const ParseNode *node,
+                          const common::ParamStore *params,
+                          CopyOptionValue &value)
+{
+  int ret = OB_SUCCESS;
+  if (OB_ISNULL(node)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    switch (node->type_) {
+      case T_VARCHAR:
+      case T_CHAR:
+      case T_IDENT: {
+        value.is_string_ = true;
+        value.str_.assign_ptr(node->str_value_, node->str_len_);
+        break;
+      }
+      case T_INT: {
+        value.is_int_ = true;
+        value.int_value_ = node->value_;
+        break;
+      }
+      case T_BOOL: {
+        value.is_bool_ = true;
+        value.bool_value_ = 0 != node->value_;
+        break;
+      }
+      case T_NULL: {
+        value.is_null_ = true;
+        break;
+      }
+      case T_QUESTIONMARK: {
+        const int64_t idx = node->value_;
+        if (OB_ISNULL(params) || idx < 0 || idx >= params->count()) {
+          ret = OB_ERR_UNEXPECTED;
+        } else {
+          const common::ObObjParam &obj = params->at(idx);
+          if (obj.is_null()) {
+            value.is_null_ = true;
+          } else if (obj.is_string_type()) {
+            value.is_string_ = true;
+            value.str_ = obj.get_string();
+          } else if (obj.is_tinyint()) {
+            value.is_bool_ = true;
+            value.bool_value_ = obj.get_bool();
+          } else if (obj.is_integer_type()) {
+            value.is_int_ = true;
+            value.int_value_ = obj.get_int();
+          } else {
+            ret = OB_ERR_PARSER_SYNTAX;
+          }
+        }
+        break;
+      }
+      default: {
+        ret = OB_ERR_PARSER_SYNTAX;
+        break;
+      }
+    }
+  }
+  return ret;
+}
+
+} // namespace
+
+int ObSelectResolver::resolve_copy_into(const ParseNode &node, ObSelectIntoItem &into_item)
+{
+  int ret = OB_SUCCESS;
+  ParseNode *path_node = node.children_[0];
+  ParseNode *options_node = node.children_[1];
+  if (OB_ISNULL(path_node) || OB_ISNULL(params_.session_info_) || OB_ISNULL(allocator_)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_FAIL(resolve_into_const_node(path_node, into_item.outfile_name_))) {
+  } else if (OB_NOT_NULL(get_select_stmt()) && OB_NOT_NULL(get_select_stmt()->get_query_ctx())) {
+    get_select_stmt()->get_query_ctx()->set_disable_plan_cache(true);
+  }
+  if (OB_SUCC(ret)) {
+    const ObCollationType cs_type = params_.session_info_->get_local_collation_connection();
+    into_item.into_type_ = T_INTO_OUTFILE;
+    into_item.copy_mode_ = true;
+    into_item.has_header_ = false;
+    into_item.is_single_ = true;
+    into_item.is_optional_ = true;
+    ObString comma;
+    ObString newline;
+    if (OB_FAIL(ob_write_string(*allocator_, ObString::make_string(","), comma))) {
+    } else if (OB_FAIL(ob_write_string(*allocator_, ObString::make_string("\n"), newline))) {
+    } else {
+      into_item.field_str_.set_varchar(comma);
+      into_item.field_str_.set_collation_type(cs_type);
+      into_item.line_str_.set_varchar(newline);
+      into_item.line_str_.set_collation_type(cs_type);
+      into_item.closed_cht_.meta_.set_char();
+      into_item.closed_cht_.set_char_value("\"", 1);
+      into_item.closed_cht_.set_collation_type(cs_type);
+      into_item.escaped_cht_.meta_.set_char();
+      into_item.escaped_cht_.set_char_value("\"", 1);
+      into_item.escaped_cht_.set_collation_type(cs_type);
+    }
+    bool escape_set = false;
+    for (int64_t i = 0; OB_SUCC(ret) && NULL != options_node && i < options_node->num_child_; ++i) {
+      ParseNode *option_node = options_node->children_[i];
+      ParseNode *name_node = NULL;
+      ParseNode *value_node = NULL;
+      ObString option_name;
+      CopyOptionValue value;
+      if (OB_ISNULL(option_node)) {
+        ret = OB_ERR_UNEXPECTED;
+      } else if (T_FILE_SQL_ARG == option_node->type_) {
+        if (OB_UNLIKELY(2 != option_node->num_child_) ||
+            OB_ISNULL(name_node = option_node->children_[0])) {
+          ret = OB_ERR_UNEXPECTED;
+        } else {
+          option_name.assign_ptr(name_node->str_value_, name_node->str_len_);
+          value_node = option_node->children_[1];
+          if (OB_FAIL(get_copy_option_value(value_node, params_.param_list_, value))) {
+          }
+        }
+      } else if (T_IDENT == option_node->type_) {
+        option_name.assign_ptr(option_node->str_value_, option_node->str_len_);
+      } else {
+        ret = OB_ERR_UNEXPECTED;
+      }
+      if (OB_FAIL(ret)) {
+      } else if (0 == option_name.case_compare("header")) {
+        bool header = true;
+        if (NULL == value_node) {
+          header = true;
+        } else if (value.is_bool_) {
+          header = value.bool_value_;
+        } else if (value.is_int_) {
+          header = 0 != value.int_value_;
+        } else if (value.is_string_) {
+          header = 0 != value.str_.case_compare("false");
+        } else {
+          ret = OB_ERR_PARSE_SQL;
+        }
+        if (OB_SUCC(ret)) {
+          into_item.has_header_ = header;
+        }
+      } else if (0 == option_name.case_compare("format")) {
+        if (!value.is_string_) {
+          ret = OB_ERR_PARSE_SQL;
+        } else if (0 != value.str_.case_compare("csv")) {
+          ret = OB_NOT_SUPPORTED;
+          LOG_USER_ERROR(OB_NOT_SUPPORTED, "COPY format other than CSV");
+        }
+      } else if (0 == option_name.case_compare("nullstr") ||
+                 0 == option_name.case_compare("null")) {
+        ObString copied;
+        if (!value.is_string_) {
+          ret = OB_ERR_PARSE_SQL;
+        } else if (OB_FAIL(ob_write_string(*allocator_, value.str_, copied))) {
+        } else {
+          into_item.nullstr_ = copied;
+        }
+      } else if (0 == option_name.case_compare("delimiter") ||
+                 0 == option_name.case_compare("delim") ||
+                 0 == option_name.case_compare("sep")) {
+        ObString copied;
+        if (!value.is_string_ || 1 != value.str_.length()) {
+          ret = OB_ERR_PARSE_SQL;
+        } else if (OB_FAIL(ob_write_string(*allocator_, value.str_, copied))) {
+        } else {
+          into_item.field_str_.set_varchar(copied);
+          into_item.field_str_.set_collation_type(cs_type);
+        }
+      } else if (0 == option_name.case_compare("quote")) {
+        if (!value.is_string_ || 1 != value.str_.length()) {
+          ret = OB_ERR_PARSE_SQL;
+        } else {
+          into_item.closed_cht_.set_char_value(value.str_.ptr(), 1);
+          if (!escape_set) {
+            into_item.escaped_cht_.set_char_value(value.str_.ptr(), 1);
+          }
+        }
+      } else if (0 == option_name.case_compare("escape")) {
+        escape_set = true;
+        if (!value.is_string_ || value.str_.length() > 1) {
+          ret = OB_ERR_PARSE_SQL;
+        } else if (value.str_.empty()) {
+          into_item.escaped_cht_.set_char_value(NULL, 0);
+        } else {
+          into_item.escaped_cht_.set_char_value(value.str_.ptr(), 1);
+        }
+      } else {
+        // ignore other options
+      }
+    }
+  }
+  if (OB_FAIL(ret)) {
+    LOG_WARN("failed to resolve copy into", K(ret));
+  }
+  return ret;
+}
 
 int ObSelectResolver::resolve_column_ref_in_all_namespace(
   const ObQualifiedName &q_name,

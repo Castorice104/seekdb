@@ -30,7 +30,7 @@ int ObExplainResolver::resolve(const ParseNode &parse_tree)
 {
   int ret = OB_SUCCESS;
   ObExplainStmt *explain_stmt = NULL;
-  if (!(T_EXPLAIN == parse_tree.type_  && 5 == parse_tree.num_child_)) {
+  if (!(T_EXPLAIN == parse_tree.type_  && 6 == parse_tree.num_child_)) {
     ret = OB_ERR_UNEXPECTED;
     LOG_WARN("invalid EXPLAIN syntax",
              "type", parse_tree.type_,
@@ -40,6 +40,7 @@ int ObExplainResolver::resolve(const ParseNode &parse_tree)
     LOG_WARN("failed to create explain stmt");
   } else {
     ParseNode *child_node = parse_tree.children_[EXPLAIN_CHILD_STMT];
+    ParseNode *describe_node = parse_tree.children_[5];
     ObStmt *child_stmt = NULL;
     ObExplainDisplayOpt opt;
     opt.with_tree_line_ = true;
@@ -64,6 +65,10 @@ int ObExplainResolver::resolve(const ParseNode &parse_tree)
         LOG_WARN("failed to generate stmt for child stmt");
       } else {
         explain_stmt->set_explain_query_stmt(static_cast<ObDMLStmt *>(child_stmt));
+        if (OB_NOT_NULL(describe_node) && T_INT == describe_node->type_
+            && 0 != describe_node->value_ && child_stmt->is_select_stmt()) {
+          explain_stmt->set_describe_select(true);
+        }
         ParseNode *format = parse_tree.children_[EXPLAIN_FORMAT];
         if (NULL != format) {
           switch (format->type_) {

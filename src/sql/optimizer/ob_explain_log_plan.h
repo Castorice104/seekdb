@@ -32,7 +32,12 @@ namespace sql
   protected:
     virtual int generate_normal_raw_plan() override;
   private:
-    int check_explain_generate_plan_with_outline(ObLogPlan *real_plan);
+    int generate_describe_select_rows();
+  int get_describe_column_meta(const ObSelectStmt &stmt, const int64_t idx,
+                               common::ObString &name, common::ObString &type_name,
+                               bool &nullable);
+  static int describe_type_name(const common::ObObjType type, const char *&type_name);
+  int check_explain_generate_plan_with_outline(ObLogPlan *real_plan);
     DISALLOW_COPY_AND_ASSIGN(ObExplainLogPlan);
   };
 }

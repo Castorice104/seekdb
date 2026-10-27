@@ -18,6 +18,9 @@
 
 #include <cmath>
 #include <memory>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <limits.h>
 
 #include "ob_select_into_op.h"
 #include "sql/engine/cmd/ob_variable_set_executor.h"
@@ -38,7 +41,7 @@ OB_SERIALIZE_MEMBER(ObSelectIntoOpInput, task_id_, sqc_id_);
 OB_SERIALIZE_MEMBER((ObSelectIntoSpec, ObOpSpec), into_type_, user_vars_, outfile_name_,
     field_str_, line_str_, closed_cht_, is_optional_, select_exprs_, is_single_, max_file_size_,
     escaped_cht_, cs_type_, parallel_, buffer_size_, is_overwrite_,
-    external_properties_);
+    external_properties_, copy_mode_, has_header_, nullstr_, column_names_);
 
 
 int ObSelectIntoOp::inner_open()
@@ -165,6 +168,19 @@ int ObSelectIntoOp::init_env_common()
                                                  need_check))) {
   } else if (OB_FAIL(calc_outfile_path())) {
   } else if (OB_FAIL(check_has_lob_or_json())) {
+  } else if (MY_SPEC.copy_mode_ && T_INTO_OUTFILE == MY_SPEC.into_type_) {
+    char path_buf[PATH_MAX + 1];
+    MEMSET(path_buf, 0, sizeof(path_buf));
+    ObCStringHelper helper;
+    const ObString &target = file_name_.get_varchar();
+    if (target.length() > 0 && target.length() < static_cast<int64_t>(sizeof(path_buf))) {
+      const char *path = helper.convert(target);
+      struct stat st;
+      if (OB_NOT_NULL(path) && 0 == ::stat(path, &st)) {
+        ret = OB_INVALID_ARGUMENT;
+        LOG_USER_ERROR(OB_INVALID_ARGUMENT, "COPY target file already exists");
+      }
+    }
   } else if (has_coll_ && MY_SPEC.into_type_ == T_INTO_VARIABLES) {
     ret = OB_NOT_SUPPORTED;
     LOG_USER_ERROR(OB_NOT_SUPPORTED, "select array/map into variables");
@@ -199,6 +215,15 @@ int ObSelectIntoOp::inner_get_next_row()
   if (OB_SUCC(ret) && ObExternalFileFormat::FormatType::CSV_FORMAT == format_type_
       && T_INTO_VARIABLES != into_type
       && OB_FAIL(create_the_only_data_writer(data_writer))) {
+  }
+  if (OB_SUCC(ret) && MY_SPEC.copy_mode_ && MY_SPEC.has_header_ && !header_written_
+      && T_INTO_OUTFILE == into_type) {
+    if (OB_ISNULL(data_writer)) {
+      ret = OB_ERR_UNEXPECTED;
+    } else if (OB_FAIL(write_copy_header(static_cast<ObCsvFileWriter &>(*data_writer)))) {
+    } else {
+      header_written_ = true;
+    }
   }
   while (OB_SUCC(ret) && row_count < top_limit_cnt_) {
     clear_evaluated_flag();
@@ -253,6 +278,12 @@ int ObSelectIntoOp::inner_get_next_batch(const int64_t max_row_cnt)
     if (OB_FAIL(create_the_only_data_writer(data_writer))) {
     } else if (OB_ISNULL(data_writer)) {
       ret = OB_ERR_UNEXPECTED;
+    } else if (MY_SPEC.copy_mode_ && MY_SPEC.has_header_ && !header_written_
+               && T_INTO_OUTFILE == into_type) {
+      if (OB_FAIL(write_copy_header(static_cast<ObCsvFileWriter &>(*data_writer)))) {
+      } else {
+        header_written_ = true;
+      }
     }
   }
 
@@ -325,7 +356,22 @@ int ObSelectIntoOp::inner_rescan()
 int ObSelectIntoOp::inner_close()
 {
   int ret = OB_SUCCESS;
+  ObString target_file;
+  if (MY_SPEC.copy_mode_ && !need_commit_ && T_INTO_OUTFILE == MY_SPEC.into_type_
+      && OB_NOT_NULL(data_writer_) && data_writer_->is_file_opened_) {
+    target_file = file_name_.get_varchar();
+  }
   if (OB_NOT_NULL(data_writer_) && OB_FAIL(data_writer_->close_data_writer())) {
+  }
+  if (!target_file.empty()) {
+    // the query failed, do not leave an incomplete output file behind
+    char path_buf[PATH_MAX + 1];
+    MEMSET(path_buf, 0, sizeof(path_buf));
+    ObCStringHelper helper;
+    const char *path = helper.convert(target_file);
+    if (OB_NOT_NULL(path)) {
+      ::unlink(path);
+    }
   }
   return ret;
 }
@@ -588,6 +634,28 @@ int ObSelectIntoOp::check_buf_sufficient(ObCsvFileWriter &data_writer,
   if (buf_len < str_len * 1.1) {
     if (OB_FAIL(data_writer.flush_buf())) {
     } else if (OB_FAIL(use_shared_buf(data_writer, buf, buf_len, pos))) {
+    }
+  }
+  return ret;
+}
+
+int ObSelectIntoOp::write_copy_header(ObCsvFileWriter &data_writer)
+{
+  int ret = OB_SUCCESS;
+  for (int64_t i = 0; OB_SUCC(ret) && i < MY_SPEC.column_names_.count(); ++i) {
+    ObObj obj;
+    obj.set_varchar(MY_SPEC.column_names_.at(i));
+    obj.set_collation_type(cs_type_);
+    if (OB_FAIL(print_field(obj, data_writer))) {
+    } else if (i != MY_SPEC.column_names_.count() - 1 &&
+               OB_FAIL(write_obj_to_file(field_str_, data_writer))) {
+    }
+  }
+  if (OB_SUCC(ret)) {
+    if (OB_FAIL(write_obj_to_file(line_str_, data_writer))) {
+    } else if (OB_FAIL(check_csv_file_size(data_writer))) {
+    } else if (OB_FAIL(data_writer.flush_shared_buf(shared_buf_))) {
+    } else if (has_compress_ && OB_FAIL(data_writer.flush_buf())) {
     }
   }
   return ret;
@@ -921,6 +989,16 @@ int ObSelectIntoOp::print_field(const ObObj &obj, ObCsvFileWriter &data_writer)
 {
   int ret = OB_SUCCESS;
   char char_n = 'N';
+  if (MY_SPEC.copy_mode_ && obj.is_null()) {
+    if (!MY_SPEC.nullstr_.empty()) {
+      ObObj null_obj;
+      null_obj.set_varchar(MY_SPEC.nullstr_);
+      null_obj.set_collation_type(cs_type_);
+      ret = write_obj_to_file(null_obj, data_writer, false);
+    }
+    return ret;
+  }
+
   const bool need_enclose = has_enclose_ && !obj.is_null()
                             && (!is_optional_ || obj.is_string_type() || obj.is_collection_sql_type()
                                 || obj.is_json() || obj.is_geometry() || obj.is_date()

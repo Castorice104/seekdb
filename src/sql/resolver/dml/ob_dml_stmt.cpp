@@ -158,6 +158,48 @@ int TableItem::deep_copy_json_table_def(const ObJsonTableDef& jt_def, ObIRawExpr
   return ret;
 }
 
+int TableItem::deep_copy_file_table_def(const ObFileTableDef &def, ObIAllocator *allocator)
+{
+  int ret = OB_SUCCESS;
+  ObFileTableDef *new_def = NULL;
+  if (OB_ISNULL(allocator)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_ISNULL(new_def = static_cast<ObFileTableDef *>(allocator->alloc(sizeof(ObFileTableDef))))) {
+    ret = OB_ALLOCATE_MEMORY_FAILED;
+  } else {
+    new_def = new (new_def) ObFileTableDef();
+    new_def->format_ = def.format_;
+    new_def->header_ = def.header_;
+    new_def->delimiter_ = def.delimiter_;
+    new_def->quote_ = def.quote_;
+    new_def->escape_ = def.escape_;
+    new_def->has_escape_ = def.has_escape_;
+    new_def->sample_size_ = def.sample_size_;
+    new_def->file_size_ = def.file_size_;
+    new_def->file_mtime_ = def.file_mtime_;
+    new_def->file_inode_ = def.file_inode_;
+    new_def->file_device_ = def.file_device_;
+    if (OB_FAIL(ob_write_string(*allocator, def.path_, new_def->path_))) {
+    } else if (OB_FAIL(ob_write_string(*allocator, def.nullstr_, new_def->nullstr_))) {
+    }
+    for (int64_t i = 0; OB_SUCC(ret) && i < def.columns_.count(); ++i) {
+      ObFileTableColumnDef column_def;
+      const ObFileTableColumnDef &src = def.columns_.at(i);
+      column_def.res_type_ = src.res_type_;
+      column_def.nullable_ = src.nullable_;
+      column_def.max_length_ = src.max_length_;
+      if (OB_FAIL(ob_write_string(*allocator, src.name_, column_def.name_))) {
+      } else if (OB_FAIL(ob_write_string(*allocator, src.type_name_, column_def.type_name_))) {
+      } else if (OB_FAIL(new_def->columns_.push_back(column_def))) {
+      }
+    }
+    if (OB_SUCC(ret)) {
+      file_table_def_ = new_def;
+    }
+  }
+  return ret;
+}
+
 int TableItem::deep_copy(ObIRawExprCopier &expr_copier,
                          const TableItem &other,
                          ObIAllocator* allocator)
@@ -192,6 +234,8 @@ int TableItem::deep_copy(ObIRawExprCopier &expr_copier,
   } else if (OB_FAIL(expr_copier.copy(other.function_table_expr_, function_table_expr_))) {
   } else if (OB_FAIL(part_ids_.assign(other.part_ids_))) {
   } else if (OB_FAIL(part_names_.assign(other.part_names_))) {
+  } else if (is_file_table() &&
+             OB_FAIL(deep_copy_file_table_def(*other.file_table_def_, allocator))) {
   } else if (is_values_table() &&
              OB_FAIL(deep_copy_values_table_def(*other.values_table_def_, expr_copier, allocator))) {
   } else { /* do nothing */ }

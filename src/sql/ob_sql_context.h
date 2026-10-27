@@ -585,7 +585,8 @@ public:
       injected_random_status_(false),
       ori_question_marks_count_(0),
       type_demotion_flag_(0),
-      has_hybrid_search_(false)
+      has_hybrid_search_(false),
+      disable_plan_cache_(false)
   {
   }
   TO_STRING_KV(N_PARAM_NUM, question_marks_count_,
@@ -629,6 +630,7 @@ public:
     filter_ds_stat_cache_.reuse();
     type_demotion_flag_ = 0;
     has_hybrid_search_ = false;
+    disable_plan_cache_ = false;
   }
 
   int64_t get_new_stmt_id() { return stmt_count_++; }
@@ -666,6 +668,8 @@ public:
     question_marks_count_ = count;
   };
   bool has_hybrid_search() const { return has_hybrid_search_; }
+  void set_disable_plan_cache(bool disable) { disable_plan_cache_ = disable; }
+  bool disable_plan_cache() const { return disable_plan_cache_; }
 
 public:
   static const int64_t CALCULABLE_EXPR_NUM = 1;
@@ -739,6 +743,9 @@ public:
     };
   };
   bool has_hybrid_search_;
+  // plans of statements that read local files depend on file contents resolved at
+  // resolve time, they must not be shared through the plan cache
+  bool disable_plan_cache_;
 };
 
 } /* ns sql*/

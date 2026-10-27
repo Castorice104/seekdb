@@ -507,6 +507,12 @@ class ObSelectIntoOpInput;
 REGISTER_OPERATOR(ObLogSelectInto, PHY_SELECT_INTO, ObSelectIntoSpec, ObSelectIntoOp,
                   ObSelectIntoOpInput, VECTORIZED_OP);
 
+class ObLogFileScan;
+class ObFileScanSpec;
+class ObFileScanOp;
+REGISTER_OPERATOR(ObLogFileScan, PHY_FILE_SCAN, ObFileScanSpec, ObFileScanOp,
+                  NOINPUT);
+
 class ObLogFunctionTable;
 class ObFunctionTableSpec;
 class ObFunctionTableOp;

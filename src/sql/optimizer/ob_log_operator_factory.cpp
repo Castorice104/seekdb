@@ -27,6 +27,7 @@
 #include "ob_log_delete.h"
 #include "ob_log_distinct.h"
 #include "ob_log_expr_values.h"
+#include "ob_log_file_scan.h"
 #include "ob_log_function_table.h"
 #include "ob_log_json_table.h"
 #include "ob_log_values.h"
@@ -234,6 +235,13 @@ ObLogicalOperator *ObLogOperatorFactory::allocate(ObLogPlan &plan, ObLogOpType t
     ptr = allocator_.alloc(sizeof(ObLogMonitoringDump));
     if (NULL != ptr) {
       ret_op = new (ptr) ObLogMonitoringDump(plan);
+    } else { /* do nothing */ }
+    break;
+  }
+  case LOG_FILE_SCAN: {
+    ptr = allocator_.alloc(sizeof(ObLogFileScan));
+    if (NULL != ptr) {
+      ret_op = new (ptr) ObLogFileScan(plan);
     } else { /* do nothing */ }
     break;
   }

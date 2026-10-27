@@ -270,6 +270,28 @@ int ObSql::fill_result_set(ObResultSet &result_set,
       break;
     }
     case stmt::T_EXPLAIN: {
+      ObExplainStmt *explain_stmt = static_cast<ObExplainStmt *>(stmt);
+      if (OB_NOT_NULL(explain_stmt) && explain_stmt->is_describe_select()) {
+        const char *describe_names[6] = {"column_name", "column_type", "null", "key", "default", "extra"};
+        ObString tname = ObString::make_string("describe_table");
+        field.tname_ = tname;
+        field.org_tname_ = tname;
+        field.type_.set_type(ObVarcharType);
+        field.charsetnr_ = CS_TYPE_UTF8MB4_GENERAL_CI;
+        field.type_.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
+        field.type_.set_collation_level(CS_LEVEL_IMPLICIT);
+        field.type_.set_varchar(type_name);
+        if (OB_FAIL(result_set.reserve_field_columns(6))) {
+        }
+        for (int64_t i = 0; OB_SUCC(ret) && i < 6; ++i) {
+          ObString cname = ObString::make_string(describe_names[i]);
+          field.cname_ = cname;
+          field.org_cname_ = cname;
+          if (OB_FAIL(result_set.add_field_column(field))) {
+          }
+        }
+        break;
+      }
       ObString tname = ObString::make_string("explain_table");
       ObString cname = ObString::make_string("Query Plan");
       field.tname_ = tname;
@@ -3529,6 +3551,8 @@ int ObSql::need_add_plan(const ObPlanCacheCtx &pc_ctx,
              || OB_ISNULL(result.get_exec_context().get_stmt_factory()->get_query_ctx())) {
     ret = OB_ERR_UNEXPECTED;
   } else if (result.get_exec_context().get_stmt_factory()->get_query_ctx()->has_hybrid_search()) {
+    need_add_plan = false;
+  } else if (result.get_exec_context().get_stmt_factory()->get_query_ctx()->disable_plan_cache()) {
     need_add_plan = false;
   }
   return ret;

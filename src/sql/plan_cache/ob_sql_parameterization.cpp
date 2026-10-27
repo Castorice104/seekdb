@@ -1649,11 +1649,23 @@ int ObSqlParameterization::fast_parser(ObIAllocator &allocator,
     || (ObParser::is_pl_stmt(sql, nullptr, &is_call_procedure) && !is_call_procedure))) {
     (void)fp_result.pc_key_.name_.assign_ptr(sql.ptr(), sql.length());
   } else if (config::_ob_enable_fast_parser()) {
+    bool fallback_to_raw_sql = false;
     if (OB_FAIL(ObFastParser::parse(sql, fp_ctx, allocator, no_param_sql_ptr, no_param_sql_len,
                                     p_list, param_num, fp_result, fp_result.values_token_pos_))) {
+      if (OB_ERR_PARSER_SYNTAX == ret || OB_NOT_SUPPORTED == ret) {
+        // The fast parser only handles a subset of the syntax. Fall back to using the
+        // raw SQL text as the plan cache key; the normal parser resolves it later.
+        SQL_PC_LOG(INFO, "fast parser does not support the stmt, use raw sql as cache key", K(ret));
+        ret = OB_SUCCESS;
+        fallback_to_raw_sql = true;
+        fp_result.pc_key_.name_.assign_ptr(sql.ptr(), sql.length());
+        fp_result.raw_params_.reuse();
+        fp_result.values_tokens_.reuse();
+        fp_result.reset_question_mark_ctx();
+      }
     }
 
-    if (OB_SUCC(ret)) {
+    if (OB_SUCC(ret) && !fallback_to_raw_sql) {
       (void)fp_result.pc_key_.name_.assign_ptr(no_param_sql_ptr, no_param_sql_len);
       if (param_num > 0) {
         ObPCParam *pc_param = NULL;

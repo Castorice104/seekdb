@@ -55,6 +55,8 @@ public:
   const common::ObString& get_statement_id() const { return statement_id_; }
   void set_statement_id(const common::ObString& statement_id) { statement_id_ = statement_id; }
   virtual bool is_affect_found_rows() const { return is_select_explain(); }
+  void set_describe_select(bool describe_select) { describe_select_ = describe_select; }
+  bool is_describe_select() const { return describe_select_; }
   bool is_explain_extended() const { return EXPLAIN_EXTENDED == format_
                                             || EXPLAIN_EXTENDED_NOADDR == format_; }
 
@@ -64,6 +66,7 @@ private:
   ExplainType format_;
   ObExplainDisplayOpt display_opt_;
   ObDMLStmt *explain_query_stmt_;
+  bool describe_select_;
   common::ObString into_table_;
   common::ObString statement_id_;
   DISALLOW_COPY_AND_ASSIGN(ObExplainStmt);
