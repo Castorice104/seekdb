@@ -178,6 +178,10 @@ public:
   ObExprOperatorFactory &get_expr_op_factory() { return expr_op_factory_; }
   const ObExprOperatorFactory &get_expr_op_factory() const { return expr_op_factory_; }
 
+  // Alternating base table/AI column IDs, captured before query rewrite.
+  // Kept in cached plans independently of the current strict-read setting.
+  common::ObIArray<uint64_t> &get_ai_column_read_refs() { return ai_column_read_refs_; }
+  const common::ObIArray<uint64_t> &get_ai_column_read_refs() const { return ai_column_read_refs_; }
   int set_field_columns(const common::ColumnsFieldArray &fields);
 
   inline const common::ColumnsFieldArray &get_field_columns() const
@@ -407,6 +411,7 @@ private:
    */
 
   //for fill_result_set
+  common::ObFixedArray<uint64_t, common::ObIAllocator> ai_column_read_refs_;
   common::ColumnsFieldArray field_columns_;
   common::ParamsFieldArray param_columns_;
   common::ObFixedArray<share::AutoincParam, common::ObIAllocator> autoinc_params_; //auto-increment param

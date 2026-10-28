@@ -20,6 +20,7 @@
 #include "sql/code_generator/ob_code_generator.h"
 #include "sql/code_generator/ob_static_engine_cg.h"
 #include "sql/engine/ob_physical_plan.h"
+#include "sql/engine/ai_column/ai_column_strict_read.h"
 
 namespace oceanbase
 {
@@ -31,6 +32,12 @@ int ObCodeGenerator::generate(const ObLogPlan &log_plan,
 {
   int ret = OB_SUCCESS;
   int64_t batch_size = 0;
+  // Fallback for plans which do not enter the query transformer.
+  ObExecContext *exec_ctx = log_plan.get_optimizer_context().get_exec_ctx();
+  CK(nullptr != exec_ctx && nullptr != exec_ctx->get_sql_ctx()
+     && nullptr != exec_ctx->get_sql_ctx()->schema_guard_);
+  OZ(collect_ai_column_read_refs(*log_plan.get_stmt(),
+          *exec_ctx->get_sql_ctx()->schema_guard_, phy_plan));
   OZ(detect_batch_size(log_plan, batch_size));
   if (OB_SUCC(ret) && batch_size > 0) {
     log_plan.get_optimizer_context().set_batch_size(batch_size);

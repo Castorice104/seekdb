@@ -1062,6 +1062,10 @@ int ObTableModifyOp::submit_all_dml_task()
       dml_rtctx_.reuse();
     }
   }
+  if (OB_SUCC(ret)) {
+    ret = flush_ai_column_changes();
+  }
+
   return ret;
 }
 

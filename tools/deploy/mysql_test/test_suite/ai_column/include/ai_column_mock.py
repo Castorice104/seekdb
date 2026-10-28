@@ -69,12 +69,13 @@ def start_server(port):
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
+    output.close()
     with open(state_path(port, "server.pid"), "w", encoding="ascii") as stream:
         stream.write(str(process.pid))
     for _ in range(100):
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.05):
-                return
+                return process
         except OSError:
             if process.poll() is not None:
                 break
@@ -115,6 +116,7 @@ def serve(port):
                     user_text = "|".join(str(value) for value in input_value)
                 else:
                     user_text = str(input_value)
+            started_ns = time.monotonic_ns()
             key = parsed.path + "|" + user_text
             with lock:
                 attempts[key] = attempts.get(key, 0) + 1
@@ -154,7 +156,11 @@ def serve(port):
                     ]
                 }
             else:
-                if "base-10 integer" in system_text:
+                if user_text == "mixed-bad-integer":
+                    content = "7.5"
+                elif user_text == "mixed-invalid-json":
+                    content = "{invalid-json"
+                elif "base-10 integer" in system_text:
                     content = "7"
                 elif "valid JSON value" in system_text:
                     content = json.dumps(
@@ -175,6 +181,8 @@ def serve(port):
                 "authorization": self.headers.get("Authorization", ""),
                 "system": system_text,
                 "user": user_text,
+                "started_ns": started_ns,
+                "ended_ns": time.monotonic_ns(),
             }
             with lock:
                 with open(log_path, "a", encoding="utf-8") as stream:
@@ -208,6 +216,23 @@ def assert_events(port, assertion):
             event["authorization"].startswith("Bearer ") for event in events
         )
         ok = has_json and has_integer and has_auth
+    elif assertion == "concurrent-groups":
+        names = ("slow-old-concurrent-a", "concurrent-fast-a",
+                 "slow-old-concurrent-b", "concurrent-fast-b")
+        selected = {name: [event for event in events if event["user"] == name]
+                    for name in names}
+        ok = all(len(items) == 1 for items in selected.values())
+        if ok:
+            first = selected[names[0]][0]
+            second = selected[names[2]][0]
+            ok = max(first["started_ns"], second["started_ns"]) < min(
+                first["ended_ns"], second["ended_ns"])
+    elif assertion == "mixed-terminal-attempts":
+        expected = {"mixed-good": 1, "mixed-bad-integer": 2, "mixed-invalid-json": 1}
+        ok = all(sum(event["user"] == name for event in events) == count
+                 for name, count in expected.items())
+    elif assertion == "no-staged-replay":
+        ok = not any("must-not-run-staged" in event["user"] for event in events)
     elif assertion == "retry-once":
         retry_events = [event for event in events if "retry-once" in event["user"]]
         ok = (

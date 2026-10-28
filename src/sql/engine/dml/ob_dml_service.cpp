@@ -854,6 +854,11 @@ int ObDMLService::insert_row(const ObInsCtDef &ins_ctdef,
                                 ins_ctdef.new_row_,
                                 stored_row))) {
   }
+  if (OB_SUCC(ret)) {
+    ret = dml_rtctx.op_.queue_ai_column_change(ins_ctdef, tablet_loc->loc_meta_->ref_table_id_,
+                                               nullptr, &ins_ctdef.new_row_);
+  }
+
   return ret;
 }
 
@@ -895,6 +900,11 @@ int ObDMLService::delete_row(const ObDelCtDef &del_ctdef,
                                                               del_ctdef.trans_info_expr_,
                                                               stored_row))) {
   }
+  if (OB_SUCC(ret)) {
+    ret = dml_rtctx.op_.queue_ai_column_change(del_ctdef, tablet_loc->loc_meta_->ref_table_id_,
+                                               &del_ctdef.old_row_, nullptr);
+  }
+
   return ret;
 }
 int ObDMLService::lock_row(const ObLockCtDef &lock_ctdef,
@@ -1092,6 +1102,11 @@ int ObDMLService::update_row(const ObUpdCtDef &upd_ctdef,
                 "new row", ROWEXPR2STR(dml_rtctx.get_eval_ctx(), upd_ctdef.new_row_));
     }
   }
+  if (OB_SUCC(ret) && upd_rtdef.is_row_changed_) {
+    ret = dml_rtctx.op_.queue_ai_column_change(upd_ctdef, new_tablet_loc->loc_meta_->ref_table_id_,
+                                               &upd_ctdef.old_row_, &upd_ctdef.new_row_);
+  }
+
   return ret;
 }
 

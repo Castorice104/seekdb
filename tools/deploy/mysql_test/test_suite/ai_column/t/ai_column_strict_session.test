@@ -1,0 +1,12 @@
+# Native session variable must be available to text, prepared and cached SQL.
+connection default;
+select @@session.ai_column_strict_read as defaults_off;
+set session ai_column_strict_read=on;
+prepare strict_variable from 'select @@session.ai_column_strict_read as enabled';
+execute strict_variable;
+set session ai_column_strict_read=off;
+execute strict_variable;
+deallocate prepare strict_variable;
+# GLOBAL is intentionally unsupported for this session-only switch.
+--error 1228
+set global ai_column_strict_read=on;

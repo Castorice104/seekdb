@@ -72,6 +72,10 @@ private:
   // function members
   uint64_t gen_column_id();
   uint64_t gen_udt_set_id();
+  int resolve_ai_column(share::schema::ObColumnSchemaV2 &column,
+                        const ParseNode *element,
+                        const ParseNode *ai_node,
+                        common::ObIArray<share::schema::ObColumnSchemaV2> &resolved_cols);
   int64_t get_primary_key_size() const;
   int add_primary_key_part(const common::ObString &column_name, common::ObArray<ObColumnResolveStat> &stats, int64_t &pk_data_length);
   int add_hidden_tablet_seq_col();

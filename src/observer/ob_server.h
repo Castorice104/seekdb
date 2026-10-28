@@ -216,6 +216,7 @@ namespace concurrency_control { class ObMultiVersionGarbageCollector; }
 namespace standby { class StandbyModule; }
 namespace observer
 {
+class AiColumnService;
 
 class ObServerOptions;
 class ObSchemaRefreshSchedulerAdapter;
@@ -754,6 +755,7 @@ private:
   rootserver::ObSystemPackageLoadService * mods_system_package_load_service_ = nullptr;
   rootserver::ObDDLScheduler * mods_ddl_scheduler_ = nullptr;
   omt::ObAiService * mods_ai_service_ = nullptr;
+  observer::AiColumnService *mods_ai_column_service_ = nullptr;
   share::ObChangeStreamMgr * mods_change_stream_mgr_ = nullptr;
   ObLSRuntimeAdapter ls_runtime_adapter_;
 }; // end of class ObServer

@@ -35,6 +35,16 @@ public:
   explicit ObAlterTableStmt(common::ObIAllocator *name_pool);
   ObAlterTableStmt();
   virtual ~ObAlterTableStmt();
+  bool is_retry_ai_column() const { return retry_ai_column_; }
+  void set_retry_ai_column(uint64_t column_id, const common::ObString &predicate)
+  { retry_ai_column_ = true; retry_ai_column_id_ = column_id; retry_ai_predicate_ = predicate; }
+  uint64_t get_retry_ai_column_id() const { return retry_ai_column_id_; }
+  const common::ObString &get_retry_ai_predicate() const { return retry_ai_predicate_; }
+private:
+  bool retry_ai_column_ = false;
+  uint64_t retry_ai_column_id_ = common::OB_INVALID_ID;
+  common::ObString retry_ai_predicate_;
+public:
   int add_column(const share::schema::AlterColumnSchema &column_schema);
   int add_index_arg(obcall::ObIndexArg *index_arg);
   int check_drop_fk_arg_exist(obcall::ObDropForeignKeyArg *drop_fk_arg, bool &has_same_fk_arg);

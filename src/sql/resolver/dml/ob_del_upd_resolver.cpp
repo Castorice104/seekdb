@@ -70,6 +70,28 @@ ObDelUpdResolver::~ObDelUpdResolver()
   // TODO Auto-generated destructor stub
 }
 
+int ObDelUpdResolver::check_ai_column_assignment(const ObColumnRefRawExpr &column)
+{
+  int ret = OB_SUCCESS;
+  if (nullptr != session_info_ && session_info_->is_user_session()
+      && !session_info_->is_ai_column_internal()) {
+    ObDelUpdStmt *stmt = get_del_upd_stmt();
+    const TableItem *table = nullptr == stmt ? nullptr : stmt->get_table_item_by_id(column.get_table_id());
+    const ColumnItem *item = nullptr == stmt ? nullptr : stmt->get_column_item_by_id(column.get_table_id(), column.get_column_id());
+    const ObColumnSchemaV2 *schema = nullptr;
+    if (nullptr != table && nullptr != item) {
+      const uint64_t tid = OB_INVALID_ID == item->base_tid_ ? table->ref_id_ : item->base_tid_;
+      const uint64_t cid = OB_INVALID_ID == item->base_cid_ ? column.get_column_id() : item->base_cid_;
+      if (OB_FAIL(schema_checker_->get_column_schema(tid, cid, schema, true))) {
+      } else if (nullptr != schema && schema->is_ai_column()) {
+        ret = OB_NOT_SUPPORTED;
+        LOG_USER_ERROR(OB_NOT_SUPPORTED, "assigning an AI result column");
+      }
+    }
+  }
+  return ret;
+}
+
 int ObDelUpdResolver::resolve_assignments(const ParseNode &parse_node,
                                           ObIArray<ObTableAssignment> &table_assigns,
                                           ObStmtScope scope)
@@ -129,7 +151,8 @@ int ObDelUpdResolver::resolve_assignments(const ParseNode &parse_node,
         ObRawExpr *expr = value_list.at(i);
         bool is_generated_column = true;
         // Mysql only allows updating generated columns to their default value
-        if (OB_FAIL(check_basic_column_generated(ref_expr, stmt, is_generated_column))) {
+        if (OB_FAIL(check_ai_column_assignment(*ref_expr))) {
+        } else if (OB_FAIL(check_basic_column_generated(ref_expr, stmt, is_generated_column))) {
         } else {
           if (T_DEFAULT == expr->get_expr_type()) {
             ObDefaultValueUtils utils(stmt, &params_, this);
@@ -2158,6 +2181,7 @@ int ObDelUpdResolver::resolve_insert_columns(const ParseNode *node,
         ret = OB_ERR_UNEXPECTED;
       } else if (FALSE_IT(column_expr = static_cast<ObColumnRefRawExpr*>(ref_expr))) {
         //do nothing
+      } else if (OB_FAIL(check_ai_column_assignment(*column_expr))) {
       } else if (OB_FAIL(check_insert_column_duplicate(column_expr->get_column_id(), is_duplicate))) {
       } else if (is_duplicate) {
         ret = OB_ERR_FIELD_SPECIFIED_TWICE;
@@ -2194,7 +2218,8 @@ int ObDelUpdResolver::resolve_insert_columns(const ParseNode *node,
       for (int64_t i = 0; OB_SUCC(ret) && i < N; i++) {
         uint64_t column_id = column_items.at(i).column_id_;
         bool is_duplicate = false;
-        if (OB_FAIL(check_insert_column_duplicate(column_id, is_duplicate))) {
+        if (OB_FAIL(check_ai_column_assignment(*column_items.at(i).expr_))) {
+        } else if (OB_FAIL(check_insert_column_duplicate(column_id, is_duplicate))) {
         } else if (is_duplicate) {
           ret = OB_ERR_FIELD_SPECIFIED_TWICE;
           ObCStringHelper helper;

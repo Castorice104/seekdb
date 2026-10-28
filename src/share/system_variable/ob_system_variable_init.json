@@ -10988,5 +10988,18 @@
     "info_cn": "开启后可以把本地 CSV、JSONL 和 Parquet 文件当作 SQL 表读取",
     "background_cn": "文件即数据库功能默认关闭，避免意外读取本地文件",
     "ref_url": ""
+  },
+  "ai_column_strict_read": {
+    "id": 10755,
+    "name": "ai_column_strict_read",
+    "default_value": "0",
+    "base_value": "0",
+    "data_type": "bool",
+    "info": "Reject reads of AI columns containing any row that is not READY",
+    "flags": "SESSION | NEED_SERIALIZE",
+    "publish_version": "1.0.0.0",
+    "info_cn": "引用的 AI 列存在未就绪行时拒绝语句",
+    "background_cn": "",
+    "ref_url": ""
   }
 }

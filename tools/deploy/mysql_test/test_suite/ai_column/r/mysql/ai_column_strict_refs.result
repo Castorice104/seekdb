@@ -1,0 +1,22 @@
+initial_ready
+1
+ready_null_is_readable
+1
+result
+result
+ordinary_columns_unaffected
+1
+other_ready_column_unaffected
+1
+ERROR HY000: AI column has unfinished tasks for table_id=<table_id>, column_id=<column_id>
+ERROR HY000: AI column has unfinished tasks for table_id=<table_id>, column_id=<column_id>
+ERROR HY000: AI column has unfinished tasks for table_id=<table_id>, column_id=<column_id>
+ERROR HY000: AI column has unfinished tasks for table_id=<table_id>, column_id=<column_id>
+ERROR HY000: AI column has unfinished tasks for table_id=<table_id>, column_id=<column_id>
+ERROR HY000: AI column has unfinished tasks for table_id=<table_id>, column_id=<column_id>
+ERROR HY000: AI column has unfinished tasks for table_id=<table_id>, column_id=<column_id>
+ERROR HY000: AI column has unfinished tasks for table_id=<table_id>, column_id=<column_id>
+ERROR HY000: AI column has unfinished tasks for table_id=<table_id>, column_id=<column_id>
+ERROR HY000: AI column has unfinished tasks for table_id=<table_id>, column_id=<column_id>
+rejected_writes_are_atomic
+1

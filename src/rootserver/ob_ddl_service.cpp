@@ -7448,6 +7448,8 @@ int ObDDLService::fill_new_column_attributes(
     new_column_schema.set_autoincrement(alter_column_schema.is_autoincrement());
     new_column_schema.set_column_flags(alter_column_schema.get_column_flags());
     new_column_schema.set_comment(alter_column_schema.get_comment_str());
+    if (OB_FAIL(new_column_schema.set_ai_column_info(alter_column_schema.get_ai_column_info_str()))) {
+    }
     new_column_schema.set_schema_version(new_schema_version);
     new_column_schema.set_on_update_current_timestamp(
         alter_column_schema.is_on_update_current_timestamp());
@@ -7455,7 +7457,7 @@ int ObDDLService::fill_new_column_attributes(
     new_column_schema.set_srs_id(alter_column_schema.get_srs_id());
     new_column_schema.set_skip_index_attr(alter_column_schema.get_skip_index_attr().get_packed_value());
     new_column_schema.set_lob_chunk_size(alter_column_schema.get_lob_chunk_size());
-    if (OB_FAIL(new_column_schema.get_local_session_var().deep_copy(alter_column_schema.get_local_session_var()))) {
+    if (OB_SUCC(ret) && OB_FAIL(new_column_schema.get_local_session_var().deep_copy(alter_column_schema.get_local_session_var()))) {
     }
   }
   return ret;

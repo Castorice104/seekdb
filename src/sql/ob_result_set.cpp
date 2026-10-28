@@ -16,6 +16,13 @@
 
 #define USING_LOG_PREFIX SQL
 #include "ob_result_set.h"
+#include "sql/engine/ai_column/ai_column_strict_read.h"
+#include "sql/resolver/ddl/ob_ai_column_info.h"
+#include "sql/resolver/expr/ob_raw_expr_util.h"
+#include "sql/session/ob_inner_sql_connection.h"
+#include "query/api/query/session/ob_inner_sql_connection_access.h"
+#include "common/mysqlclient/ob_mysql_proxy.h"
+
 #include "data_plane/transaction/ob_tx_desc_access.h"
 #include "share/rc/ob_server_runtime.h"
 #include "sql/resolver/dml/ob_del_upd_stmt.h"
@@ -56,6 +63,189 @@ int find_table_scan_table_id(const ObOpSpec *spec, uint64_t &table_id)
   }
   return ret;
 }
+}
+
+// These IDs are captured before rewrite so predicates folded to FALSE and
+// eliminated subqueries still participate in column-wide strict semantics.
+int collect_ai_column_read_refs(const ObDMLStmt &stmt,
+                               ObSchemaGetterGuard &schema_guard,
+                               ObPhysicalPlan &plan)
+{
+  int ret = OB_SUCCESS;
+  ObSEArray<ObRawExpr *, 16> roots;
+  ObSEArray<ObRawExpr *, 16> columns;
+  ObSEArray<ObSelectStmt *, 8> children;
+  ObStmtExprGetter visitor;
+  visitor.set_relation_scope();
+  // DML descriptors carry all stored columns for row/index maintenance. They
+  // are not SQL reads. Assignment values remain included through DML_VALUE.
+  visitor.remove_scope(SCOPE_DML_COLUMN);
+  visitor.remove_scope(SCOPE_DML_CONSTRAINT);
+  if (stmt.is_explain_stmt()) {
+    // EXPLAIN does not read AI values or run strict preflight.
+  } else if (OB_FAIL(stmt.get_relation_exprs(roots, visitor))) {
+  } else if (OB_FAIL(ObRawExprUtils::extract_column_exprs(roots, columns))) {
+  }
+  for (int64_t i = 0; OB_SUCC(ret) && i < columns.count(); ++i) {
+    const ObColumnRefRawExpr *expr = static_cast<const ObColumnRefRawExpr *>(columns.at(i));
+    const TableItem *table = stmt.get_table_item_by_id(expr->get_table_id());
+    const ObTableSchema *schema = nullptr;
+    if (nullptr == table || !table->is_basic_table()) {
+      // Derived tables and views are checked through their child statements.
+    } else if (OB_FAIL(schema_guard.get_table_schema(table->ref_id_, schema))) {
+    } else if (OB_ISNULL(schema)) {
+      ret = OB_TABLE_NOT_EXIST;
+    } else {
+      const ObColumnSchemaV2 *column = schema->get_column_schema(expr->get_column_id());
+      if (nullptr != column && column->is_ai_column()) {
+        ObIArray<uint64_t> &refs = plan.get_ai_column_read_refs();
+        bool found = false;
+        for (int64_t j = 0; !found && j + 1 < refs.count(); j += 2) {
+          found = refs.at(j) == table->ref_id_ && refs.at(j + 1) == column->get_column_id();
+        }
+        if (!found) {
+          ObSEArray<uint64_t, 16> merged;
+          if (OB_FAIL(merged.assign(refs))) {
+          } else if (OB_FAIL(merged.push_back(table->ref_id_))) {
+          } else if (OB_FAIL(merged.push_back(column->get_column_id()))) {
+          } else {
+            refs.reset();
+            ret = refs.assign(merged);
+          }
+        }
+      }
+    }
+  }
+  if (OB_SUCC(ret) && stmt.is_dml_write_stmt()) {
+    // AI maintenance uses origin-transaction nested SQL even with strict OFF.
+    for (int64_t i = 0; OB_SUCC(ret) && i < stmt.get_table_size(); ++i) {
+      const TableItem *table = stmt.get_table_item(i);
+      const ObTableSchema *schema = nullptr;
+      if (nullptr == table || !table->is_basic_table()) {
+      } else if (OB_FAIL(schema_guard.get_table_schema(table->ref_id_, schema))) {
+      } else if (nullptr != schema) {
+        for (ObTableSchema::const_column_iterator col = schema->column_begin();
+             col != schema->column_end(); ++col) {
+          if (nullptr != *col && (*col)->is_ai_column()) {
+            plan.set_has_nested_sql(true);
+            stmt.get_query_ctx()->set_has_nested_sql(true);
+          }
+        }
+      }
+    }
+  }
+  if (OB_SUCC(ret) && !stmt.is_explain_stmt()) {
+    if (OB_FAIL(stmt.get_child_stmts(children))) {
+    }
+    for (int64_t i = 0; OB_SUCC(ret) && i < children.count(); ++i) {
+      if (nullptr != children.at(i)) {
+        ret = SMART_CALL(collect_ai_column_read_refs(*children.at(i), schema_guard, plan));
+      }
+    }
+  }
+  if (OB_SUCC(ret) && !plan.get_ai_column_read_refs().empty()) {
+    plan.set_has_nested_sql(true);
+    stmt.get_query_ctx()->set_has_nested_sql(true);
+  }
+  return ret;
+}
+
+namespace
+{
+int append_ai_identifier(ObSqlString &sql, const ObString &name)
+{
+  int ret = sql.append("`");
+  for (int64_t i = 0; OB_SUCC(ret) && i < name.length(); ++i) {
+    ret = name.ptr()[i] == '`' ? sql.append("``") : sql.append(name.ptr() + i, 1);
+  }
+  if (OB_SUCC(ret)) { ret = sql.append("`"); }
+  return ret;
+}
+}
+
+int check_ai_column_strict_read(ObExecContext &ctx, const ObPhysicalPlan &plan)
+{
+  int ret = OB_SUCCESS;
+  ObSQLSessionInfo *session = ctx.get_my_session();
+  int64_t strict = 0;
+  const ObIArray<uint64_t> &refs = plan.get_ai_column_read_refs();
+  if (OB_ISNULL(session)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (!session->is_user_session() || session->is_ai_column_internal() || refs.empty()
+             || !(stmt::T_SELECT == plan.get_stmt_type() || stmt::T_UPDATE == plan.get_stmt_type()
+                  || stmt::T_DELETE == plan.get_stmt_type())) {
+  } else if (OB_FAIL(session->get_sys_variable(SYS_VAR_AI_COLUMN_STRICT_READ, strict))) {
+  } else if (strict) {
+    if (OB_ISNULL(ctx.get_sql_ctx()) || OB_ISNULL(ctx.get_sql_ctx()->schema_guard_)
+        || refs.count() % 2 != 0 || !ctx.get_das_ctx().get_snapshot().is_valid()) {
+      ret = OB_ERR_UNEXPECTED;
+    } else {
+      ObSchemaGetterGuard &guard = *ctx.get_sql_ctx()->schema_guard_;
+      ObArenaAllocator allocator("AiStrictRead");
+      common::sqlclient::ObISQLConnectionGuard connection_guard;
+      ObIInnerSQLConnection *connection = nullptr;
+      if (OB_FAIL(query::ObInnerSQLConnectionAccess::create_connection_with_external_session(
+                      session, connection_guard))) {
+      } else if (OB_ISNULL(connection = as_inner_sql_connection(connection_guard.get_ptr()))) {
+        ret = OB_ERR_UNEXPECTED;
+      }
+      for (int64_t i = 0; OB_SUCC(ret) && i + 1 < refs.count(); i += 2) {
+        const ObTableSchema *table = nullptr;
+        const ObDatabaseSchema *database = nullptr;
+        const ObColumnSchemaV2 *column = nullptr;
+        const ObColumnSchemaV2 *state = nullptr;
+        ObAiColumnInfo info;
+        ObSqlString sql;
+        if (OB_FAIL(guard.get_table_schema(refs.at(i), table))) {
+        } else if (OB_ISNULL(table) || OB_ISNULL(column = table->get_column_schema(refs.at(i + 1)))) {
+          ret = OB_SCHEMA_EAGAIN;
+        } else if (OB_FAIL(get_ai_column_info(*column, allocator, info))) {
+        } else if (OB_ISNULL(state = table->get_column_schema(info.state_column_id_))) {
+          ret = OB_ERR_AI_COLUMN_NOT_READY;
+          LOG_USER_ERROR(OB_ERR_AI_COLUMN_NOT_READY, refs.at(i), refs.at(i + 1));
+        } else if (OB_FAIL(guard.get_database_schema(table->get_database_id(), database))) {
+        } else if (OB_ISNULL(database)) {
+          ret = OB_SCHEMA_EAGAIN;
+        } else if (OB_FAIL(sql.append("SELECT 1 FROM "))) {
+        } else if (OB_FAIL(append_ai_identifier(sql, database->get_database_name_str()))) {
+        } else if (OB_FAIL(sql.append("."))) {
+        } else if (OB_FAIL(append_ai_identifier(sql, table->get_table_name_str()))) {
+        } else if (OB_FAIL(sql.append(" WHERE "))) {
+        } else if (OB_FAIL(append_ai_identifier(sql, state->get_column_name_str()))) {
+        } else if (OB_FAIL(sql.append(" IS NULL OR "))) {
+        } else if (OB_FAIL(append_ai_identifier(sql, state->get_column_name_str()))) {
+        } else if (OB_FAIL(sql.append(" <> 1 LIMIT 1"))) {
+        } else {
+          ObSQLSessionInfo::StmtSavedValue saved_session;
+          ObIInnerSQLConnection::SavedValue saved_connection;
+          if (OB_FAIL(connection->begin_nested_session(saved_session, saved_connection, false))) {
+          } else {
+            const transaction::ObTxReadSnapshot *saved_snapshot = session->get_ai_column_read_snapshot();
+            const bool saved_internal = session->is_ai_column_internal();
+            session->set_ai_column_read_snapshot(&ctx.get_das_ctx().get_snapshot());
+            session->set_ai_column_internal(true);
+            {
+              ObMySQLProxy::MySQLResult result;
+              if (OB_FAIL(connection->execute_read(sql.ptr(), result))) {
+              } else if (OB_ISNULL(result.get_result())) {
+                ret = OB_ERR_UNEXPECTED;
+              } else if (OB_SUCCESS == (ret = result.get_result()->next())) {
+                ret = OB_ERR_AI_COLUMN_NOT_READY;
+                LOG_USER_ERROR(OB_ERR_AI_COLUMN_NOT_READY, refs.at(i), refs.at(i + 1));
+              } else if (OB_ITER_END == ret) {
+                ret = OB_SUCCESS;
+              }
+            }
+            session->set_ai_column_internal(saved_internal);
+            session->set_ai_column_read_snapshot(saved_snapshot);
+            const int end_ret = connection->end_nested_session(saved_session, saved_connection);
+            if (OB_SUCC(ret)) { ret = end_ret; }
+          }
+        }
+      }
+    }
+  }
+  return ret;
 }
 
 int ObResultSet::clear_ddl_checksum(ObPhysicalPlan *physical_plan)
@@ -462,6 +652,7 @@ OB_INLINE int ObResultSet::do_open_plan(ObExecContext &ctx)
 
   if (OB_FAIL(ret)) {
   } else if (OB_FAIL(start_stmt())) {
+  } else if (OB_FAIL(check_ai_column_strict_read(ctx, *physical_plan_))) {
   } else {
     /* Set exec_result_ to the executor's runtime environment for returning data */
     /* execute plan,

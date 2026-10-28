@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+#include "common/mysqlclient/ob_mysql_transaction.h"
+#include "sql/resolver/ddl/ob_ai_column_info.h"
+
 #define USING_LOG_PREFIX SHARE_SCHEMA
 #include "sql/printer/ob_schema_printer.h"
 #include "share/ob_autoincrement_service.h"
@@ -289,6 +292,14 @@ int ObSchemaPrinter::print_table_definition_columns(const ObTableSchema &table_s
           if (OB_SUCC(ret) && col->is_autoincrement() && !is_no_field_options(sql_mode)) {
             if (OB_FAIL(databuff_printf(buf, buf_len, pos, " AUTO_INCREMENT"))) {
             }
+          }
+        }
+        if (OB_SUCC(ret) && col->is_ai_column()) {
+          sql::ObAiColumnInfo info;
+          if (OB_FAIL(sql::get_ai_column_info(*col, allocator, info))) {
+          } else if (OB_FAIL(databuff_printf(buf, buf_len, pos,
+                   " AI COLUMN (%.*s) WITH (sync_mode='async', max_retries=%ld)",
+                   info.expr_text_.length(), info.expr_text_.ptr(), info.max_retries_))) {
           }
         }
         if (OB_SUCC(ret) && OB_FAIL(print_column_lob_params(*col, buf, buf_len, pos))) {

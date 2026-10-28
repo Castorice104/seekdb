@@ -1,0 +1,152 @@
+# An update of one dependency must preserve and publish the other member of an older group.
+connection default;
+--exec python3 mysql_test/test_suite/ai_column/include/ai_column_mock.py start 19125
+--disable_warnings
+drop database if exists ai_column_worker_partial;
+--enable_warnings
+create database ai_column_worker_partial;
+call DBMS_AI_SERVICE.CREATE_AI_MODEL('worker_partial_model',
+  '{"type":"completion","model_name":"mock-complete"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('worker_partial_endpoint',
+  '{"ai_model_name":"worker_partial_model","url":"http://127.0.0.1:19125/v1/chat/completions","access_key":"partial-key","provider":"openai","request_model_name":"mock-complete"}');
+create table ai_column_worker_partial.docs(
+  id bigint primary key,
+  left_input varchar(200),
+  right_input varchar(200),
+  left_result varchar(400) AI COLUMN (AI_COMPLETE('worker_partial_model', left_input))
+    WITH (sync_mode='async', max_retries=0),
+  right_result varchar(400) AI COLUMN (AI_COMPLETE('worker_partial_model', right_input))
+    WITH (sync_mode='async', max_retries=0)
+);
+insert into ai_column_worker_partial.docs(id, left_input, right_input)
+values(1, 'slow-old', 'surviving-column');
+--real_sleep 0.3
+update ai_column_worker_partial.docs set left_input='fast-new' where id=1;
+let $retry=150;
+let $done=0;
+while ($retry)
+{
+  let $done=`select ifnull(left_result='mock:fast-new' and right_result='mock:surviving-column', 0)
+             from ai_column_worker_partial.docs where id=1`;
+  if ($done == 1)
+  {
+    let $retry=0;
+  }
+  if ($done == 0)
+  {
+    --real_sleep 0.1
+    dec $retry;
+  }
+}
+eval select $done=1 as partially_superseded_group_preserves_survivor;
+select count(*)=0 as surviving_group_tasks_cleaned
+from oceanbase.__all_ai_column_task task
+join oceanbase.__all_table t on t.table_id=task.table_id
+join oceanbase.__all_database d on d.database_id=t.database_id
+where d.database_name='ai_column_worker_partial';
+# Expired ownership is recoverable, and an already staged successful member is
+# reused without calling its model again after a simulated worker interruption.
+start transaction;
+insert into ai_column_worker_partial.docs(id, left_input, right_input)
+values(2, 'must-not-run-staged', 'lease-recovery');
+update oceanbase.__all_ai_column_task task
+join oceanbase.__all_ai_column def
+  on def.table_id=task.table_id and def.column_id=task.column_id
+join oceanbase.__all_table t on t.table_id=task.table_id
+join oceanbase.__all_database d on d.database_id=t.database_id
+set task.state=if(def.column_name='left_result', 2, 1),
+    task.result_sql=if(def.column_name='left_result',
+                       concat(char(39), 'mock:already-staged', char(39)), NULL),
+    task.worker_id='interrupted-worker', task.lease_until=1, task.claim_epoch=9
+where d.database_name='ai_column_worker_partial' and t.table_name='docs';
+commit;
+let $retry=150;
+let $done=0;
+while ($retry)
+{
+  let $done=`select ifnull(left_result='mock:already-staged' and right_result='mock:lease-recovery', 0)
+             from ai_column_worker_partial.docs where id=2`;
+  if ($done == 1)
+  {
+    let $retry=0;
+  }
+  if ($done == 0)
+  {
+    --real_sleep 0.1
+    dec $retry;
+  }
+}
+eval select $done=1 as expired_lease_resumes_staged_group;
+--exec python3 mysql_test/test_suite/ai_column/include/ai_column_mock.py assert 19125 no-staged-replay
+# Independent committed groups overlap, while each member is inferred once.
+insert into ai_column_worker_partial.docs(id, left_input, right_input) values
+(3, 'slow-old-concurrent-a', 'concurrent-fast-a'),
+(4, 'slow-old-concurrent-b', 'concurrent-fast-b');
+let $retry=150;
+let $done=0;
+while ($retry)
+{
+  let $done=`select count(*)=2 from ai_column_worker_partial.docs
+             where id in(3,4) and left_result=concat('mock:',left_input)
+               and right_result=concat('mock:',right_input)`;
+  if ($done == 1)
+  {
+    let $retry=0;
+  }
+  if ($done == 0)
+  {
+    --real_sleep 0.1
+    dec $retry;
+  }
+}
+eval select $done=1 as independent_groups_complete;
+--exec python3 mysql_test/test_suite/ai_column/include/ai_column_mock.py assert 19125 concurrent-groups
+
+# Successful staged output survives retries of malformed members in its group.
+create table ai_column_worker_partial.mixed(
+  id bigint primary key,
+  good_result varchar(400) AI COLUMN (AI_COMPLETE('worker_partial_model','mixed-good'))
+    WITH (sync_mode='async', max_retries=0),
+  bad_integer bigint AI COLUMN (AI_COMPLETE('worker_partial_model','mixed-bad-integer'))
+    WITH (sync_mode='async', max_retries=1),
+  bad_json json AI COLUMN (AI_COMPLETE('worker_partial_model','mixed-invalid-json'))
+    WITH (sync_mode='async', max_retries=0)
+);
+insert into ai_column_worker_partial.mixed(id) values(1);
+let $retry=150;
+let $done=0;
+while ($retry)
+{
+  let $done=`select count(*)=0 from oceanbase.__all_ai_column_task task
+             join oceanbase.__all_table t on t.table_id=task.table_id
+             join oceanbase.__all_database d on d.database_id=t.database_id
+             where d.database_name='ai_column_worker_partial' and t.table_name='mixed'`;
+  if ($done == 1)
+  {
+    let $retry=0;
+  }
+  if ($done == 0)
+  {
+    --real_sleep 0.1
+    dec $retry;
+  }
+}
+eval select $done=1 as mixed_terminal_group_cleaned;
+select good_result='mock:mixed-good' and bad_integer is null and bad_json is null
+       as mixed_type_failures_keep_success
+from ai_column_worker_partial.mixed where id=1;
+set ai_column_strict_read=ON;
+select good_result='mock:mixed-good' as successful_member_is_ready
+from ai_column_worker_partial.mixed where id=1;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+select bad_integer from ai_column_worker_partial.mixed where id=1;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+select bad_json from ai_column_worker_partial.mixed where id=1;
+set ai_column_strict_read=OFF;
+--exec python3 mysql_test/test_suite/ai_column/include/ai_column_mock.py assert 19125 mixed-terminal-attempts
+drop database ai_column_worker_partial;
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('worker_partial_endpoint');
+call DBMS_AI_SERVICE.DROP_AI_MODEL('worker_partial_model');
+--exec python3 mysql_test/test_suite/ai_column/include/ai_column_mock.py stop 19125

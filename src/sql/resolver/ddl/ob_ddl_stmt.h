@@ -20,6 +20,7 @@
 #include "sql/resolver/ob_stmt.h"
 #include "sql/resolver/ob_cmd.h"
 #include "sql/resolver/dml/ob_hint.h"
+#include "sql/resolver/ddl/ob_ai_column_info.h"
 #include "share/ob_rpc_struct.h"
 namespace oceanbase
 {
@@ -50,6 +51,15 @@ public:
                             true> array_array_t;
   virtual bool cause_implicit_commit() const { return true; }
   virtual int get_first_stmt(common::ObString &first_stmt);
+  const common::ObIArray<ObAiColumnInfo> &get_ai_columns() const { return ai_columns_; }
+  common::ObIArray<ObAiColumnInfo> &get_ai_columns() { return ai_columns_; }
+  int add_ai_column(const ObAiColumnInfo &info) { return ai_columns_.push_back(info); }
+  const common::ObIArray<share::schema::ObColumnSchemaV2> &get_ai_hidden_columns() const
+  { return ai_hidden_columns_; }
+  common::ObIArray<share::schema::ObColumnSchemaV2> &get_ai_hidden_columns()
+  { return ai_hidden_columns_; }
+  int add_ai_hidden_column(const share::schema::ObColumnSchemaV2 &column)
+  { return ai_hidden_columns_.push_back(column); }
   void set_parallelism(const int64_t parallelism) { parallelism_ = parallelism; }
   int64_t &get_parallelism() { return parallelism_; }
   void set_has_parallel_hint(bool has_parallel_hint) { has_parallel_hint_ = has_parallel_hint; }
@@ -59,6 +69,8 @@ protected:
 private:
   int64_t parallelism_;
   bool has_parallel_hint_;
+  common::ObSEArray<ObAiColumnInfo, 4> ai_columns_;
+  common::ObSEArray<share::schema::ObColumnSchemaV2, 8> ai_hidden_columns_;
 
   DISALLOW_COPY_AND_ASSIGN(ObDDLStmt);
 };

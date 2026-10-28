@@ -52,6 +52,7 @@
 #include "sql/rewrite/ob_transform_decorrelate.h"
 #include "sql/rewrite/ob_transform_late_materialization.h"
 #include "sql/rewrite/ob_transform_distinct_aggregate.h"
+#include "sql/engine/ai_column/ai_column_strict_read.h"
 
 using namespace oceanbase::common;
 using namespace oceanbase::share;
@@ -65,6 +66,8 @@ int ObTransformerImpl::transform(ObDMLStmt *&stmt)
   int ret = OB_SUCCESS;
   if (OB_ISNULL(stmt)) {
     ret = OB_ERR_UNEXPECTED;
+  } else if (nullptr != ctx_->phy_plan_ && OB_FAIL(collect_ai_column_read_refs(
+                 *stmt, *ctx_->sql_schema_guard_->get_schema_guard(), *ctx_->phy_plan_))) {
   } else if (OB_FAIL(set_transformation_parameters(stmt->get_query_ctx()))) {
   } else if (OB_FAIL(SMART_CALL(get_stmt_trans_info(stmt, true)))) {
   } else if (OB_FAIL(stmt->formalize_implicit_distinct())) {

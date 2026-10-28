@@ -20,6 +20,10 @@
 #include "lib/stat/ob_diagnostic_info_guard.h"
 #include "share/ob_server_struct.h"
 #include "sql/engine/cmd/ob_table_executor.h"
+#include "sql/engine/dml/ai_column_dml.h"
+#include "sql/engine/dml/ai_column_dml.h"
+#include "share/ob_dml_sql_splicer.h"
+#include "share/inner_table/ob_inner_table_schema.h"
 #include "query/command/ob_root_command_service.h"
 #include "query/command/ob_root_service_serialization.h"
 #include "query/runtime/ob_query_runtime_environment.h"
@@ -753,6 +757,10 @@ int ObAlterTableExecutor::alter_table_exchange_partition_rpc(obcall::ObExchangeP
 
 int ObAlterTableExecutor::execute(ObExecContext &ctx, ObAlterTableStmt &stmt)
 {
+  if (stmt.is_retry_ai_column()) {
+    return ai_column_regenerate_column(ctx, stmt.get_alter_table_arg().alter_table_schema_.get_table_id(),
+                                       stmt.get_retry_ai_column_id(), stmt.get_retry_ai_predicate());
+  }
   int ret = OB_SUCCESS;
   ObSqlExecutorCtx *task_exec_ctx = NULL;
   obcall::ObAlterTableArg &alter_table_arg = stmt.get_alter_table_arg();
@@ -865,6 +873,16 @@ int ObAlterTableExecutor::execute(ObExecContext &ctx, ObAlterTableStmt &stmt)
             res.task_id_, res.ddl_need_retry_at_executor_, my_session,
             *ctx.get_query_runtime_environment(), ctx.local_command_service(), is_support_cancel))) {
         }
+      }
+    }
+    // The new definition and hidden columns must be visible before selecting
+    // existing rows for ADD/MODIFY backfill.
+    for (int64_t i = 0; OB_SUCC(ret) && i < stmt.get_ai_columns().count(); ++i) {
+      const ObAiColumnInfo &info = stmt.get_ai_columns().at(i);
+      const uint64_t table_id = OB_INVALID_ID != alter_table_arg.table_id_
+          ? alter_table_arg.table_id_ : alter_table_arg.alter_table_schema_.get_table_id();
+      if (OB_FAIL(ai_column_regenerate_column(ctx, table_id, info.column_id_, ObString()))) {
+        LOG_WARN("failed to generate existing AI column rows", K(ret), K(table_id), K(info));
       }
     }
     char table_info_buffer[256];
@@ -1924,6 +1942,7 @@ int ObAlterTableExecutor::populate_based_schema_obj_info_(obcall::ObAlterTableAr
   }
   return ret;
 }
+
 
 } //end namespace sql
 } //end namespace oceanbase

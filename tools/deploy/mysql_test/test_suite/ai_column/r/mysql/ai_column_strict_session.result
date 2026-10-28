@@ -1,0 +1,15 @@
+select @@session.ai_column_strict_read as defaults_off;
+defaults_off
+0
+set session ai_column_strict_read=on;
+prepare strict_variable from 'select @@session.ai_column_strict_read as enabled';
+execute strict_variable;
+enabled
+1
+set session ai_column_strict_read=off;
+execute strict_variable;
+enabled
+0
+deallocate prepare strict_variable;
+set global ai_column_strict_read=on;
+ERROR HY000: Variable 'ai_column_strict_read' is a SESSION variable and can't be used with SET GLOBAL

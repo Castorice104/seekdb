@@ -370,6 +370,7 @@ END_P SET_VAR DELIMITER
 
         ORGANIZATION
 //-----------------------------non_reserved keyword end---------------------------------------------
+%token <non_reserved_keyword> RETRY
 %type <node> sql_stmt stmt_list stmt opt_end_p
 %type <node> select_stmt update_stmt delete_stmt
 %type <node> insert_stmt single_table_insert values_clause dml_table_name
@@ -4839,6 +4840,40 @@ column_definition_ref data_type opt_column_attribute_list opt_column_reference o
   merge_nodes(attributes, result, T_COLUMN_ATTRIBUTES, $3);
   set_data_type_collation($2, attributes, false, true);
   malloc_non_terminal_node($$, result->malloc_pool_, T_COLUMN_DEFINITION, 4, $1, $2, attributes, $5);
+}
+| column_definition_ref data_type AI COLUMN '(' expr ')' opt_column_attribute_list opt_position_column
+{
+  ParseNode *ai_info = NULL;
+  ParseNode *ai_source = NULL;
+  ParseNode *attributes = NULL;
+  malloc_non_terminal_node(ai_info, result->malloc_pool_, T_AI_COLUMN_INFO, 2, $6, NULL);
+  dup_expr_string(ai_info, result, @6.first_column, @6.last_column);
+  ai_source = $8;
+  if (NULL == ai_source) {
+    ai_source = ai_info;
+  } else {
+    malloc_non_terminal_node(ai_source, result->malloc_pool_, T_LINK_NODE, 2, $8, ai_info);
+  }
+  merge_nodes(attributes, result, T_COLUMN_ATTRIBUTES, ai_source);
+  set_data_type_collation($2, attributes, false, true);
+  malloc_non_terminal_node($$, result->malloc_pool_, T_COLUMN_DEFINITION, 4, $1, $2, attributes, $9);
+}
+| column_definition_ref data_type AI COLUMN '(' expr ')' WITH '(' copy_option_list ')' opt_column_attribute_list opt_position_column
+{
+  ParseNode *ai_info = NULL;
+  ParseNode *ai_source = NULL;
+  ParseNode *attributes = NULL;
+  malloc_non_terminal_node(ai_info, result->malloc_pool_, T_AI_COLUMN_INFO, 2, $6, $10);
+  dup_expr_string(ai_info, result, @6.first_column, @6.last_column);
+  ai_source = $12;
+  if (NULL == ai_source) {
+    ai_source = ai_info;
+  } else {
+    malloc_non_terminal_node(ai_source, result->malloc_pool_, T_LINK_NODE, 2, $12, ai_info);
+  }
+  merge_nodes(attributes, result, T_COLUMN_ATTRIBUTES, ai_source);
+  set_data_type_collation($2, attributes, false, true);
+  malloc_non_terminal_node($$, result->malloc_pool_, T_COLUMN_DEFINITION, 4, $1, $2, attributes, $13);
 }
 | column_definition_ref data_type opt_collation opt_generated_keyname AS '(' expr ')' opt_storage_type opt_generated_column_attribute_list opt_column_reference opt_position_column
 {
@@ -12748,6 +12783,11 @@ SHOW opt_extended_or_full TABLES opt_from_or_in_database_clause opt_show_conditi
   $$->value_ = $2[0];
   malloc_non_terminal_node($$, result->malloc_pool_, T_SHOW_COLUMNS, 4, $$, $5, $6, $7);
 }
+| SHOW AI COLUMNS from_or_in relation_factor opt_from_or_in_database_clause opt_show_condition
+{
+  (void)$4;
+  malloc_non_terminal_node($$, result->malloc_pool_, T_SHOW_AI_COLUMNS, 3, $5, $6, $7);
+}
 | SHOW TABLE STATUS opt_from_or_in_database_clause opt_show_condition
 { malloc_non_terminal_node($$, result->malloc_pool_, T_SHOW_TABLE_STATUS, 2, $4, $5); }
 | SHOW PROCEDURE STATUS opt_from_or_in_database_clause opt_show_condition
@@ -14794,7 +14834,18 @@ alter_table_action
 ;
 
 alter_table_action:
-opt_set table_option_list_space_seperated
+RETRY AI COLUMN column_name
+{
+  (void)$1;
+  malloc_non_terminal_node($$, result->malloc_pool_, T_RETRY_AI_COLUMN, 2, $4, NULL);
+}
+| RETRY AI COLUMN column_name WHERE expr
+{
+  (void)$1;
+  malloc_non_terminal_node($$, result->malloc_pool_, T_RETRY_AI_COLUMN, 2, $4, $6);
+  dup_expr_string($$, result, @6.first_column, @6.last_column);
+}
+| opt_set table_option_list_space_seperated
 {
   (void)$1;
   merge_nodes($$, result, T_TABLE_OPTION_LIST, $2);
@@ -18159,6 +18210,7 @@ ACCOUNT
 |       RESET
 |       RESPECT
 |       RESTART
+|       RETRY
 |       RESTORE
 |       RESUME
 |       RETURNED_SQLSTATE

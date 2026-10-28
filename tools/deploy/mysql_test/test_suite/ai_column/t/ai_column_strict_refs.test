@@ -1,0 +1,92 @@
+# Reference discovery must survive rewrite, cached and prepared execution.
+connection default;
+--disable_query_log
+--exec python3 mysql_test/test_suite/ai_column/include/ai_column_mock.py start 19125
+--disable_warnings
+drop database if exists ai_column_strict_refs;
+--enable_warnings
+create database ai_column_strict_refs;
+--error 0,11112
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('strict_refs_ep');
+--error 0,11118
+call DBMS_AI_SERVICE.DROP_AI_MODEL('strict_refs_model');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL('strict_refs_model', '{"type":"completion","model_name":"mock-complete"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('strict_refs_ep', '{"ai_model_name":"strict_refs_model","url":"http://127.0.0.1:19125/v1/chat/completions","access_key":"strict-key","provider":"openai","request_model_name":"mock-complete"}');
+--error 0,11112
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('strict_null_ep');
+--error 0,11118
+call DBMS_AI_SERVICE.DROP_AI_MODEL('strict_null_model');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL('strict_null_model', '{"type":"dense_embedding","model_name":"mock-embed"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('strict_null_ep', '{"ai_model_name":"strict_null_model","url":"http://127.0.0.1:19125/v1/embeddings","access_key":"strict-key","provider":"openai"}');
+create table ai_column_strict_refs.docs(
+ id int primary key, content varchar(100), untouched int,
+ result varchar(400) AI COLUMN (AI_COMPLETE('strict_refs_model',content))
+   WITH(sync_mode='async',max_retries=0),
+ null_result VECTOR(4) AI COLUMN (AI_EMBED('strict_null_model',NULL))
+   WITH(sync_mode='async',max_retries=0)
+);
+insert into ai_column_strict_refs.docs(id,content,untouched) values(1,'first',0),(2,'second',0);
+let $attempts=150;
+let $ready=0;
+while ($attempts)
+{
+ let $ready=`select count(*)=2 from ai_column_strict_refs.docs where result is not null`;
+ if ($ready == 1) { let $attempts=0; }
+ if ($ready == 0) { --real_sleep 0.1
+  dec $attempts; }
+}
+eval select $ready as initial_ready;
+set session ai_column_strict_read=on;
+select count(*)=2 as ready_null_is_readable from ai_column_strict_refs.docs where null_result is null;
+set session ai_column_strict_read=off;
+prepare strict_cached from 'select result from ai_column_strict_refs.docs where id=999';
+execute strict_cached;
+--exec python3 mysql_test/test_suite/ai_column/include/ai_column_mock.py stop 19125
+alter table ai_column_strict_refs.docs retry ai column result where id=1;
+select result from ai_column_strict_refs.docs where id=999;
+set session ai_column_strict_read=on;
+select count(*)=2 as ordinary_columns_unaffected from ai_column_strict_refs.docs;
+select count(*)=2 as other_ready_column_unaffected from ai_column_strict_refs.docs where null_result is null;
+update ai_column_strict_refs.docs set untouched=untouched+1 where id=2;
+delete from ai_column_strict_refs.docs where id=999;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+execute strict_cached;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+select result from ai_column_strict_refs.docs where id=999;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+select result from ai_column_strict_refs.docs where 1=0;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+select id from ai_column_strict_refs.docs order by result;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+select count(*) from ai_column_strict_refs.docs group by result;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+select a.id from ai_column_strict_refs.docs a join ai_column_strict_refs.docs b on a.result=b.result;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+select id from ai_column_strict_refs.docs where exists(select 1 from ai_column_strict_refs.docs b where b.result is null);
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+select id from ai_column_strict_refs.docs where 1=0 and result is null;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+update ai_column_strict_refs.docs set untouched=99 where result is null;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+delete from ai_column_strict_refs.docs where id in(select id from ai_column_strict_refs.docs b where b.result is null);
+deallocate prepare strict_cached;
+select count(*)=2 and max(untouched)=1 as rejected_writes_are_atomic from ai_column_strict_refs.docs;
+set session ai_column_strict_read=off;
+drop database ai_column_strict_refs;
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('strict_refs_ep');
+call DBMS_AI_SERVICE.DROP_AI_MODEL('strict_refs_model');
+--enable_query_log
+
+--disable_query_log
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('strict_null_ep');
+call DBMS_AI_SERVICE.DROP_AI_MODEL('strict_null_model');

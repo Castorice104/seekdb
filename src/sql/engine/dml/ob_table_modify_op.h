@@ -18,6 +18,7 @@
 #define OCEANBASE_SQL_ENGINE_DML_OB_TABLE_MODIFY_OP_
 
 #include "sql/engine/ob_operator.h"
+#include "lib/string/ob_sql_string.h"
 #include "sql/engine/dml/ob_dml_ctx_define.h"
 #include "sql/session/ob_inner_sql_connection.h"
 #include "sql/engine/ob_exec_context.h"
@@ -220,6 +221,7 @@ public:
     dml_rtctx_.cleanup();
     trigger_clear_exprs_.reset();
     fk_checkers_.reset();
+    ai_column_sql_.reset();
     last_store_row_.reset();
     ObOperator::destroy();
   }
@@ -251,6 +253,11 @@ public:
 
   ObDMLModifyRowsList& get_dml_modify_row_list() { return dml_modify_rows_;}
   int submit_all_dml_task();
+
+  int queue_ai_column_change(const ObDMLBaseCtDef &ctdef, uint64_t table_id,
+                            const ExprFixedArray *old_row, const ExprFixedArray *new_row);
+  int flush_ai_column_changes();
+  int queue_ai_column_sql(const common::ObSqlString &sql);
 
   int perform_batch_fk_check();
 protected:
@@ -304,6 +311,8 @@ public:
   ObIInnerSQLConnection::SavedValue saved_conn_;
   bool need_foreign_key_check_;
   bool need_close_conn_;
+
+  common::ObSEArray<common::ObString, 8> ai_column_sql_;
 
   ObObjPrintParams obj_print_params_;
   bool iter_end_;

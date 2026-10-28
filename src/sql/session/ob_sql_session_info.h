@@ -43,6 +43,7 @@
 
 namespace oceanbase
 {
+namespace transaction { class ObTxReadSnapshot; }
 namespace common
 {
 class ObISrsProvider;
@@ -589,6 +590,14 @@ public:
                          uint64_t id = OB_INVALID_ID);
   int print_all_cursor();
 
+  // Kernel-only AI maintenance context; no SQL variable can enable this bypass.
+  bool is_ai_column_internal() const { return ai_column_internal_; }
+  void set_ai_column_internal(bool value) { ai_column_internal_ = value; }
+  const transaction::ObTxReadSnapshot *get_ai_column_read_snapshot() const
+  { return ai_column_read_snapshot_; }
+  void set_ai_column_read_snapshot(const transaction::ObTxReadSnapshot *snapshot)
+  { ai_column_read_snapshot_ = snapshot; }
+
   inline common::sqlclient::ObISQLConnection *get_inner_conn() { return inner_conn_; }
   inline void set_inner_conn(common::sqlclient::ObISQLConnection *inner_conn)
   {
@@ -1021,6 +1030,8 @@ private:
   //and remove the record when the SQL execution ends
   //in order to access exec ctx through session during SQL execution
   ObExecContext *cur_exec_ctx_;
+  bool ai_column_internal_ = false;
+  const transaction::ObTxReadSnapshot *ai_column_read_snapshot_ = nullptr;
   ObOptimizerTraceImpl optimizer_tracer_;
   int64_t in_bytes_;
   int64_t out_bytes_;

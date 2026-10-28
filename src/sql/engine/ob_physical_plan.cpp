@@ -38,6 +38,7 @@ ObPhysicalPlan::ObPhysicalPlan(MemoryContext &mem_context /* = CURRENT_CONTEXT *
     root_op_spec_(NULL),
     param_count_(0),
     signature_(0),
+    ai_column_read_refs_(mem_context->get_arena_allocator()),
     field_columns_(mem_context->get_arena_allocator()),
     param_columns_(mem_context->get_arena_allocator()),
     autoinc_params_(allocator_),
@@ -132,6 +133,7 @@ void ObPhysicalPlan::reset()
   autoinc_params_.reset();
   stmt_need_privs_.reset();
   vars_.reset();
+  ai_column_read_refs_.reset();
   sql_expression_factory_.destroy();
   expr_op_factory_.destroy();
   literal_stmt_type_ = stmt::T_NONE;
@@ -603,6 +605,7 @@ inline bool ObPhysicalPlan::inner_check_if_is_expired(const int64_t first_exec_r
 
 // force_trace_log is coordinator-local and is not serialized with the plan.
 OB_SERIALIZE_MEMBER(ObPhysicalPlan,
+                    ai_column_read_refs_,
                     runtime_schema_version_, // this field is not used at runtime
                     phy_hint_.query_timeout_,
                     phy_hint_.read_consistency_,
@@ -917,7 +920,8 @@ void ObPhysicalPlan::calc_whether_need_trans()
   if (!bool_ret && contain_pl_udf_or_trigger() && udf_has_dml_stmt() && stmt::T_EXPLAIN != stmt_type_) {
     bool_ret = true;
   }
-  is_need_trans_ = bool_ret;
+  // Strict preflight remains a transactional read even if rewrite removes all scans.
+  is_need_trans_ = bool_ret || (stmt::T_EXPLAIN != stmt_type_ && !ai_column_read_refs_.empty());
 }
 
 int ObPhysicalPlan::update_cache_obj_stat(ObILibCacheCtx &ctx)
