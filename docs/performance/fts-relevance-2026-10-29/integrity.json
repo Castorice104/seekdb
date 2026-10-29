@@ -1,0 +1,27 @@
+{
+  "submitted_base": "8b0ebc3452505ce9713a0958f72ab70772495b58",
+  "protected_reference": "a6ac70f0f2db634213ca5ceadce6e43ce1449952",
+  "protected": {
+    "tools/benchmark/fts_large_bench.sh": "596ea5d1c0038e666b78aa94bef22d2dfb87ffc9e84dbc7e2a1da1f746424462",
+    "tools/benchmark/fts_large_bench_gen.py": "b0c816dd8211ac0471f60b72a37a3fb5c62580357a5b6d7ac95f5a8c2e3f143d",
+    "tools/benchmark/fts_large_bench_setup.sql": "311826751df7f51ac45156fb4284aeca9bd9197370aceb88f4fb92832b458108",
+    "tools/benchmark/fts_large_bench_score.py": "bea52eb1c68d05693bb3ac5b910ab0e2fa0e70e01582f40466898ee1e2e3ef55",
+    "tools/benchmark/fts_large_bench_baseline.json": "f4e97eddb2e49c982b967fc8047f7cf37177eebe53d648f6746d85aacda91f0c"
+  },
+  "candidate_source": {
+    "src/observer/composition/retrieval/ob_das_legacy_tr_merge_iter.cpp": "52b77150f0403a1cd017de87c6cd50b95bc1f88193340ad3007a4c626878c1c0",
+    "src/sql/das/iter/ob_das_iter_utils.cpp": "0c2bda08877d3f6e532b4fcfd16cacca4c42aa1b75569fbe1634b69ab95f78b7",
+    "src/sql/optimizer/ob_fts_relevance_usage.h": "e7933b08768617dbae6638cde96742d73627812f6fe8c4ba40abb9adc038bddc",
+    "src/sql/optimizer/ob_log_plan.cpp": "e72a5730da8e6775782b1d72e1bc7ac60dd69a549e3b5b14eee41039a723e97d",
+    "src/sql/optimizer/ob_log_table_scan.cpp": "601a2c63ac9c90c1cf431145d6dfa33d424947ea807226ddad3f1d0171b14968",
+    "src/storage/retrieval/ob_sparse_taat_iter.cpp": "1b4fc774b8183a582cbe89223ad31b60b7cb83c280e604fbac7035a31480f90a",
+    "src/storage/retrieval/ob_text_daat_iter.cpp": "c432038788acb421c446a174ab9aaf9a4689770dc49cb6c24ac3e0c5ec6f52d1",
+    "src/storage/retrieval/ob_text_retrieval_token_iter.cpp": "4b25d28620ff1ed45f18c11d5ebdf28acd6399de29e169ef7b7fb64729233d39",
+    "src/storage/retrieval/ob_text_taat_iter.cpp": "1ff297961c8f03bfa08ef18557d9970206061a01d9cfd8294c7a7647594c77cd"
+  },
+  "binary_sha256": {
+    "before": "b96e055998a9b7d5babe6ac7b758089a6f93a14a39efb96c395a40da9fc11eab",
+    "candidate": "cc054451fd8064bf9cffeaa98888fb731186a2e56741963424711cbd44453648"
+  },
+  "vldb_workflow": "not present at base/current; no workflow added or modified"
+}

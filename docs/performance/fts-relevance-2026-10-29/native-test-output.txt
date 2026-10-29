@@ -1,0 +1,26 @@
+Running main() from gtest_main.cc
+[==========] Running 7 tests from 2 test cases.
+[----------] Global test environment set-up.
+[----------] 4 tests from FtsHotPath
+[ RUN      ] FtsHotPath.unicode_character_classes
+[       OK ] FtsHotPath.unicode_character_classes (0 ms)
+[ RUN      ] FtsHotPath.word_frequency_and_collation_preserved
+[       OK ] FtsHotPath.word_frequency_and_collation_preserved (0 ms)
+[ RUN      ] FtsHotPath.english_normalization_growth_and_reuse
+[       OK ] FtsHotPath.english_normalization_growth_and_reuse (0 ms)
+[ RUN      ] FtsHotPath.collation_equal_words_keep_latest_spelling
+[       OK ] FtsHotPath.collation_equal_words_keep_latest_spelling (0 ms)
+[----------] 4 tests from FtsHotPath (0 ms total)
+
+[----------] 3 tests from FtsRelevanceUsage
+[ RUN      ] FtsRelevanceUsage.boolean_filter_and_shared_numeric_projection
+[       OK ] FtsRelevanceUsage.boolean_filter_and_shared_numeric_projection (0 ms)
+[ RUN      ] FtsRelevanceUsage.numeric_threshold_order_and_boolean_mode_keep_scores
+[       OK ] FtsRelevanceUsage.numeric_threshold_order_and_boolean_mode_keep_scores (0 ms)
+[ RUN      ] FtsRelevanceUsage.shared_dag_budget_and_subqueries_are_conservative
+[       OK ] FtsRelevanceUsage.shared_dag_budget_and_subqueries_are_conservative (0 ms)
+[----------] 3 tests from FtsRelevanceUsage (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 7 tests from 2 test cases ran. (0 ms total)
+[  PASSED  ] 7 tests.

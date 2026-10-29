@@ -20,3 +20,5 @@ add_executable(fts_hot_path_tests storage/fts/test_fts_hot_path.cpp)
 target_link_libraries(fts_hot_path_tests PRIVATE oceanbase
   "${DEP_DIR}/lib/libgtest_main.a" "${DEP_DIR}/lib/libgtest.a" pthread)
 add_test(NAME fts_hot_path_tests COMMAND fts_hot_path_tests)
+
+target_sources(fts_hot_path_tests PRIVATE storage/fts/test_fts_relevance_usage.cpp)

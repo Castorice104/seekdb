@@ -17,6 +17,7 @@
 #define USING_LOG_PREFIX SQL_OPT
 #include "config_bridge.h"
 #include "ob_log_plan.h"
+#include "sql/optimizer/ob_fts_relevance_usage.h"
 #include "sql/optimizer/ob_pwj_comparer.h"
 #include "sql/optimizer/stat/ob_opt_stat_manager.h"
 #include "sql/optimizer/ob_log_table_scan.h"
@@ -12071,6 +12072,12 @@ int ObLogPlan::prepare_text_retrieval_scan(const ObIArray<ObRawExpr *> &scan_mat
     ObTextRetrievalInfo &tr_info = table_scan->get_text_retrieval_info();
     tr_info.match_expr_ = match_against;
     tr_info.pushdown_match_filter_ = match_pred;
+    // Function lookup, index merge and vector-adaptive paths keep their score
+    // contract. Only a normal fulltext-driven scan has a guaranteed hit filter.
+    if (!table_scan->is_vec_adaptive_scan() && !table_scan->is_vec_idx_scan_post_filter()
+        && OB_FAIL(FtsRelevanceUsage::needs_score(*get_stmt(), *match_against, tr_info.need_calc_relevance_))) {
+      return ret;
+    }
     // The mapping table is absent when the data-table rowkey is used as the document ID.
     table_scan->set_doc_id_index_table_id(tr_info.doc_id_idx_tid_);
     if (table_scan->is_vec_adaptive_scan() || table_scan->is_vec_idx_scan_post_filter()) {
@@ -12216,7 +12223,6 @@ int ObLogPlan::prepare_text_retrieval_info(const uint64_t ref_table_id,
   uint64_t inv_idx_tid = OB_INVALID_ID;
   ObSEArray<ObAuxTableMetaInfo, 4> index_infos;
   bool need_calc_relevance = true;
-  ObSEArray<ObExprConstraint, 2> constraints;
   uint64_t docid_col_id = OB_INVALID_ID;
   if (OB_ISNULL(match_against) || OB_ISNULL(get_stmt()) || OB_ISNULL(get_optimizer_context().get_query_ctx())) {
     ret = OB_INVALID_ARGUMENT;
@@ -12283,18 +12289,6 @@ int ObLogPlan::prepare_text_retrieval_info(const uint64_t ref_table_id,
     }
   }
   if (OB_SUCC(ret)) {
-    /*
-    if (OB_FAIL(ObTransformUtils::check_need_calc_match_score(get_optimizer_context().get_exec_ctx(),
-                                                              get_stmt(),
-                                                              match_against,
-                                                              need_calc_relevance,
-                                                              constraints))) {
-      LOG_WARN("failed to check need calc relevance", K(ret));
-    } else if (!need_calc_relevance &&
-               OB_FAIL(append_array_no_dup(get_optimizer_context().get_query_ctx()->all_expr_constraints_, constraints))) {
-      LOG_WARN("failed to append array no dup", K(ret));
-    }
-    */
     tr_info.match_expr_ = match_against;
     tr_info.inv_idx_tid_ = inv_idx_tid;
     tr_info.fwd_idx_tid_ = fwd_idx_tid;
