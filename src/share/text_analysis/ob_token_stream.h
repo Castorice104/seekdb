@@ -132,6 +132,8 @@ public:
   virtual int get_next(ObDatum &next_token, int64_t &token_freq) override;
 private:
   ObArenaAllocator norm_allocator_;
+  char *norm_buffer_;
+  int64_t norm_buffer_capacity_;
 };
 
 // group (deduplicate) and count

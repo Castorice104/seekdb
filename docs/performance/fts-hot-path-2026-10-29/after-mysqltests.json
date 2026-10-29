@@ -1,0 +1,18 @@
+[
+  {
+    "test": "tokenize_function",
+    "exit_code": 0
+  },
+  {
+    "test": "cn_word",
+    "exit_code": 0
+  },
+  {
+    "test": "index_view",
+    "exit_code": 0
+  },
+  {
+    "test": "simple_query",
+    "exit_code": 0
+  }
+]

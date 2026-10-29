@@ -1,0 +1,88 @@
+{
+  "comparison": "arithmetic means of the two fresh complete runs per binary on 2026-10-29; original runs retained separately",
+  "config": {
+    "rows": 20000,
+    "batch": 500,
+    "rounds": 3000,
+    "query_rounds": 200,
+    "samples": 3,
+    "warmup": 30,
+    "skip_load": 0
+  },
+  "categories": {
+    "build": {
+      "improvement": 0.09721141049892945,
+      "metrics": {
+        "build_ik_all_sec": {
+          "before": 9.543,
+          "after": 8.859,
+          "improvement": 0.07167557371895623
+        },
+        "build_ik_content_sec": {
+          "before": 7.5755,
+          "after": 6.712,
+          "improvement": 0.11398587551976769
+        },
+        "build_beng_en_sec": {
+          "before": 3.968,
+          "after": 3.5475000000000003,
+          "improvement": 0.10597278225806443
+        }
+      }
+    },
+    "tokenize": {
+      "improvement": 0.17621672452137582,
+      "metrics": {
+        "tokenize_ik_avg_ms": {
+          "before": 0.28815,
+          "after": 0.2249,
+          "improvement": 0.21950373069581824
+        },
+        "tokenize_beng_avg_ms": {
+          "before": 0.18995,
+          "after": 0.1647,
+          "improvement": 0.13292971834693337
+        }
+      }
+    },
+    "query": {
+      "improvement": 0.07591229170609938,
+      "metrics": {
+        "query_cn_avg_ms": {
+          "before": 1.93635,
+          "after": 1.91505,
+          "improvement": 0.011000077465334313
+        },
+        "query_beng_avg_ms": {
+          "before": 2.8364000000000003,
+          "after": 2.84945,
+          "improvement": -0.0046009025525313016
+        },
+        "query_mixed_avg_ms": {
+          "before": 2.4379,
+          "after": 2.213,
+          "improvement": 0.09225152795438693
+        },
+        "query_limit_avg_ms": {
+          "before": 2.76685,
+          "after": 2.19965,
+          "improvement": 0.20499846395720756
+        }
+      }
+    }
+  },
+  "mean_improvement": 0.11644680890880155,
+  "fixed_ci_baseline_scores": {
+    "before-repeat2": 100.0,
+    "before-repeat3": 100.0,
+    "after-repeat2": 100.0,
+    "after-repeat3": 100.0
+  },
+  "benchmark_integrity_verified": true,
+  "hits": {
+    "query_cn_hits": 8001.0,
+    "query_beng_hits": 11000.0,
+    "query_mixed_hits": 7332.0,
+    "query_limit_hits": 20.0
+  }
+}

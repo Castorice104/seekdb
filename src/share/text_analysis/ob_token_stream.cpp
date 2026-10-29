@@ -220,18 +220,24 @@ int ObTokenStopWordNormalizer::filter_special_marks(const ObDatum &check_token, 
 
 ObBasicEnglishNormalizer::ObBasicEnglishNormalizer()
   : ObTokenNormalizer(),
-    norm_allocator_("TxtTokGrpFilter", OB_MALLOC_NORMAL_BLOCK_SIZE)
+    norm_allocator_("TxtTokGrpFilter", OB_MALLOC_NORMAL_BLOCK_SIZE),
+    norm_buffer_(nullptr),
+    norm_buffer_capacity_(0)
 {
 }
 
 void ObBasicEnglishNormalizer::reset()
 {
+  norm_buffer_ = nullptr;
+  norm_buffer_capacity_ = 0;
   norm_allocator_.reset();
   ObTokenNormalizer::reset();
 }
 
 void ObBasicEnglishNormalizer::reuse()
 {
+  norm_buffer_ = nullptr;
+  norm_buffer_capacity_ = 0;
   norm_allocator_.reuse();
   ObTokenNormalizer::reuse();
 }
@@ -244,7 +250,6 @@ int ObBasicEnglishNormalizer::get_next(ObDatum &next_token, int64_t &token_freq)
   } else {
     next_token.reset();
     token_freq = 0;
-    norm_allocator_.reuse();
     ObDatum tmp_datum;
     bool found_alnum = false;
     uint32_t norm_token_len = 0;
@@ -293,11 +298,27 @@ int ObBasicEnglishNormalizer::get_next(ObDatum &next_token, int64_t &token_freq)
     } else if (OB_UNLIKELY(!found_alnum)) {
       ret = OB_ERR_UNEXPECTED;
     } else {
-      ObString norm_alnum_token(norm_token_len, norm_token_ptr);
-      ObString norm_lower_token;
-      if (OB_FAIL(ObCharset::tolower(cs_, norm_alnum_token, norm_lower_token, norm_allocator_))) {
+      const int64_t capacity = static_cast<int64_t>(norm_token_len) * cs_->casedn_multiply;
+      if (capacity > norm_buffer_capacity_) {
+        // The previous token is valid until get_next() is called. Keep one
+        // scratch allocation for subsequent tokens; grow only when necessary.
+        norm_allocator_.reuse();
+        norm_buffer_ = static_cast<char *>(norm_allocator_.alloc(capacity));
+        norm_buffer_capacity_ = nullptr == norm_buffer_ ? 0 : capacity;
+      }
+      if (OB_ISNULL(norm_buffer_)) {
+        ret = OB_ALLOCATE_MEMORY_FAILED;
       } else {
-        next_token.set_string(norm_lower_token);
+        size_t length = 0;
+        if (1 == cs_->casedn_multiply) {
+          MEMCPY(norm_buffer_, norm_token_ptr, norm_token_len);
+          length = cs_->cset->casedn(cs_, norm_buffer_, norm_token_len,
+                                    norm_buffer_, norm_token_len);
+        } else {
+          length = cs_->cset->casedn(cs_, const_cast<char *>(norm_token_ptr), norm_token_len,
+                                    norm_buffer_, capacity);
+        }
+        next_token.set_string(norm_buffer_, static_cast<uint32_t>(length));
       }
     }
   }

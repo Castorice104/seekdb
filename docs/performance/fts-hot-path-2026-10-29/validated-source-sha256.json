@@ -1,0 +1,15 @@
+{
+  "src/data_plane/api/data_plane/fts/ob_fts_struct.h": "5587873c316edc2133151a2d441e799a1d891938e4c16018098e66f28186b16a",
+  "src/observer/composition/retrieval/ob_das_legacy_tr_merge_iter.cpp": "c2f3228992f0a60c80bce94e118edb4b956fc111635af9f115024133e1c823c8",
+  "src/share/text_analysis/ob_token_stream.cpp": "865dc6a81f0c8d6485328745293e798c7ace1f713a4ff217ea1115edda837e2a",
+  "src/share/text_analysis/ob_token_stream.h": "4dd226ca5d2194823b492125c06bc3d69f1a2cdeeccde5e8de6e09657f8cd8f3",
+  "src/sql/das/iter/ob_das_text_retrieval_merge_iter.cpp": "ed5ec65f4827acd10c5f4f491e6af0658fc3b03a611ac28ec1bbe54feb068944",
+  "src/sql/optimizer/ob_join_order.cpp": "f22fd290417cceba99f2d53b82e8cccf732e7b296c13a7f9202aa05cf3577fa6",
+  "src/storage/fts/ik/ob_ik_char_util.h": "fc6042828985caaf2b01b46ef50f984e9cf523e1037fa730adf845844b29a307",
+  "src/storage/fts/ob_fts_parser_helper.cpp": "671db06a660c8e107fc6b14e72ec8f33ab73d07409d739a55721dce3531230eb",
+  "src/storage/fts/ob_fts_stop_word.cpp": "997b368898d9e155ab0d64552a1bf16d8f375136284441e92ca88ef79310517b",
+  "src/storage/fts/ob_ik_ft_parser.cpp": "7966ac722989f39041c5acd6bfa53b63000863bf16c4c619e378ba697e342705",
+  "unittest/CMakeLists.txt": "1fc1d7da6cd463bfb01b209ff56f9b7c92bee0beee652dd66da42634f19de215",
+  "unittest/storage/fts/run_fts_differential.py": "404b1cdc01d0f600c55afdb5cdad363dbfd1574b5f89e2e58d8006549b700e52",
+  "unittest/storage/fts/test_fts_hot_path.cpp": "27d63eff87218c689ecdcb7910b2be70fc185b05d2d7accb273631ca24d5cbe8"
+}

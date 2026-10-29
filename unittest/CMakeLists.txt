@@ -15,3 +15,8 @@ add_executable(ai_column_schema_tests sql/engine/expr/test_ai_column_schema.cpp)
 target_link_libraries(ai_column_schema_tests PRIVATE oceanbase
   "${DEP_DIR}/lib/libgtest_main.a" "${DEP_DIR}/lib/libgtest.a" pthread)
 add_test(NAME ai_column_schema_tests COMMAND ai_column_schema_tests)
+
+add_executable(fts_hot_path_tests storage/fts/test_fts_hot_path.cpp)
+target_link_libraries(fts_hot_path_tests PRIVATE oceanbase
+  "${DEP_DIR}/lib/libgtest_main.a" "${DEP_DIR}/lib/libgtest.a" pthread)
+add_test(NAME fts_hot_path_tests COMMAND fts_hot_path_tests)
