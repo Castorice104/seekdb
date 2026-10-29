@@ -252,19 +252,63 @@ int ObFTDATReader<DATA_TYPE>::match_with_hit(const ObString &ft_char,
                                              ObDATrieHit &hit) const
 {
   int ret = OB_SUCCESS;
-  ObFTWordCode code;
+  ObFTWordCode code = 0;
+  bool found = false;
+  bool cacheable = false;
+  int64_t slot = -1;
+  const int64_t char_len = ft_char.length();
   hit.set_unmatch();
-  auto *map = dat_->get_map();
-  int32_t *base = reinterpret_cast<int32_t *>(dat_->buff + dat_->base_offset_);
-  int32_t *check = reinterpret_cast<int32_t *>(dat_->buff + dat_->check_offset_);
 
-  ObFTSingleWord word;
-  word.set_word(ft_char.ptr(), ft_char.length());
-  if (OB_FAIL(dat_->get_map()->find(word, code)) && OB_ENTRY_NOT_EXIST != ret) {
-  } else if (OB_ENTRY_NOT_EXIST == ret) {
-    ret = OB_SUCCESS;
-    hit.set_unmatch();
-  } else {
+  // Most characters of a document repeat many times while the DAT is immutable
+  // for the lifetime of this reader, so remember the trie code per character.
+  if (char_len > 0 && char_len <= common::ObCharset::MAX_MB_LEN && OB_NOT_NULL(ft_char.ptr())) {
+    cacheable = true;
+    uint32_t hash = static_cast<uint8_t>(ft_char.ptr()[0]);
+    hash = hash * 131u + static_cast<uint8_t>(ft_char.ptr()[char_len - 1]);
+    hash = hash * 131u + static_cast<uint32_t>(char_len);
+    slot = static_cast<int64_t>(hash) & (CHAR_CODE_CACHE_SIZE - 1);
+    const CharCodeCacheEntry &entry = code_cache_[slot];
+    if (static_cast<int64_t>(entry.key_len_) == char_len
+        && 0 == MEMCMP(entry.key_, ft_char.ptr(), char_len)) {
+      if (entry.code_ < 0) {
+        // Cached negative lookup: keep hit unmatch and skip the hash probe.
+        return OB_SUCCESS;
+      }
+      code = entry.code_;
+      found = true;
+    }
+  }
+
+  if (!found) {
+    ObFTSingleWord word;
+    word.set_word(ft_char.ptr(), static_cast<int32_t>(char_len));
+    if (OB_FAIL(dat_->get_map()->find(word, code))) {
+      if (OB_ENTRY_NOT_EXIST != ret) {
+        // keep the real error
+      } else {
+        ret = OB_SUCCESS;
+        if (cacheable) {
+          CharCodeCacheEntry &entry = code_cache_[slot];
+          entry.key_len_ = static_cast<uint8_t>(char_len);
+          MEMCPY(entry.key_, ft_char.ptr(), char_len);
+          entry.code_ = -1;
+        }
+        hit.set_unmatch();
+      }
+    } else {
+      found = true;
+      if (cacheable) {
+        CharCodeCacheEntry &entry = code_cache_[slot];
+        entry.key_len_ = static_cast<uint8_t>(char_len);
+        MEMCPY(entry.key_, ft_char.ptr(), char_len);
+        entry.code_ = code;
+      }
+    }
+  }
+
+  if (OB_SUCC(ret) && found) {
+    int32_t *base = reinterpret_cast<int32_t *>(dat_->buff + dat_->base_offset_);
+    int32_t *check = reinterpret_cast<int32_t *>(dat_->buff + dat_->check_offset_);
     if (&last_hit == &hit) {
       // sameone
     } else {

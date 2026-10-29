@@ -167,7 +167,24 @@ template <typename DataType = void>
 class ObFTDATReader
 {
 public:
-  ObFTDATReader(ObFTDAT *dat) : dat_(dat) {}
+  // Small per-reader cache of single-character -> trie code. A reader belongs
+  // to one ObFTCacheDict instance, which is owned by one parser invocation, so
+  // the cache needs no synchronization and never outlives the immutable DAT.
+  static constexpr int64_t CHAR_CODE_CACHE_SIZE = 32;
+  struct CharCodeCacheEntry
+  {
+    char key_[common::ObCharset::MAX_MB_LEN];
+    ObFTWordCode code_;
+    uint8_t key_len_;
+  };
+
+  ObFTDATReader(ObFTDAT *dat) : dat_(dat)
+  {
+    for (int64_t i = 0; i < CHAR_CODE_CACHE_SIZE; ++i) {
+      code_cache_[i].key_len_ = 0;
+      code_cache_[i].code_ = 0;
+    }
+  }
 
   // Match single word with hit.
   int match_with_hit(const ObString &single_word,
@@ -175,6 +192,7 @@ public:
                      ObDATrieHit &hit) const;
 
 private:
+  mutable CharCodeCacheEntry code_cache_[CHAR_CODE_CACHE_SIZE];
   ObFTDAT *dat_;
 
 private:

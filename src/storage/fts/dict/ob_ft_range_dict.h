@@ -38,7 +38,8 @@ public:
   ObFTRangeDict(ObIAllocator &alloc,
                 ObFTCacheRangeContainer *range_container,
                 const ObFTDictDesc &desc)
-      : is_inited_(false), desc_(desc), range_alloc_(lib::ObMemAttr("Range Dict")),
+      : is_inited_(false), last_range_idx_(-1), desc_(desc),
+        range_alloc_(lib::ObMemAttr("Range Dict")),
         range_dicts_(&range_alloc_), range_container_(range_container)
   {
   }
@@ -102,6 +103,10 @@ private:
 private:
   static constexpr int DEFAULT_KEY_PER_RANGE = 50000; // by estimated
   bool is_inited_;
+  // Per-parser-instance cache of the range that matched last. Ranges are
+  // immutable after build_dict_from_cache() and the dictionary instance is
+  // owned by one tokenizer invocation, so this needs no synchronization.
+  mutable int64_t last_range_idx_;
   ObFTDictDesc desc_;
   ObArenaAllocator range_alloc_;
   ObVector<ObFTRange, ObArenaAllocator> range_dicts_;

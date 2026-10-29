@@ -108,6 +108,49 @@ int ObStopWordChecker::check_stopword(const ObFTWord &word, bool &is_stopword)
   return ret;
 }
 
+namespace {
+// True if lowercasing the word with cs->cset->casedn may change at least one
+// code point. This is the exact table walk used by ob_casedn_utf8mb4 without
+// the encode/copy work. Any malformed input or unsupported charset falls back
+// to the original ObCharset::tolower path, so semantics are unchanged.
+bool str_may_need_casedown(const ObCharsetInfo *cs, const char *str, const int64_t len)
+{
+  bool need = false;
+  if (OB_ISNULL(cs) || OB_ISNULL(str) || len <= 0) {
+    need = true;
+  } else {
+    ObUnicaseInfo *uni = cs->caseinfo;
+    const unsigned char *p = reinterpret_cast<const unsigned char *>(str);
+    const unsigned char *end = p + len;
+    while (!need && p < end) {
+      if (*p < 0x80) {
+        need = (*p >= 'A' && *p <= 'Z');
+        ++p;
+      } else if (OB_ISNULL(uni) || OB_ISNULL(cs->cset) || OB_ISNULL(cs->cset->mb_wc)) {
+        need = true;
+      } else {
+        ob_wc_t wc = 0;
+        const int n = cs->cset->mb_wc(cs, &wc, p, end);
+        if (n <= 0) {
+          need = true;
+        } else {
+          ob_wc_t lower = wc;
+          if (wc <= uni->maxchar) {
+            const ObUnicaseInfoChar *page = uni->page[wc >> 8];
+            if (OB_NOT_NULL(page)) {
+              lower = page[wc & 0xFF].tolower;
+            }
+          }
+          need = (lower != wc);
+          p += n;
+        }
+      }
+    }
+  }
+  return need;
+}
+} // namespace
+
 ////////////////////////////////////////////////////////////////////////////////
 // class ObAddWord
 ObAddWord::ObAddWord(
@@ -164,15 +207,26 @@ int ObAddWord::casedown_word(const ObFTWord &src, ObFTWord &dst)
   if (OB_UNLIKELY(src.empty())) {
     ret = OB_INVALID_ARGUMENT;
   } else if (flag_.casedown()) {
-    ObString dst_str;
-    if (OB_FAIL(ObCharset::tolower(
-                    word_meta_.get_collation_type(),
-                    src.get_word().get_string(),
-                    dst_str,
-                    allocator_))) {
+    const ObCollationType coll_type = word_meta_.get_collation_type();
+    const ObCharsetInfo *cs = ObCharset::get_charset(coll_type);
+    if (OB_ISNULL(cs)) {
+      ret = OB_ERR_UNEXPECTED;
+    } else if (!str_may_need_casedown(cs, src.get_word().get_string().ptr(), src.get_word().get_string().length())) {
+      // casedn is the identity on this word (the common case for CJK tokens).
+      // Keep pointing into the document instead of allocating and copying a
+      // lowercased duplicate for the word map.
+      dst = src;
     } else {
-      ObFTWord tmp(dst_str.length(), dst_str.ptr(), word_meta_);
-      dst = tmp;
+      ObString dst_str;
+      if (OB_FAIL(ObCharset::tolower(
+                      coll_type,
+                      src.get_word().get_string(),
+                      dst_str,
+                      allocator_))) {
+      } else {
+        ObFTWord tmp(dst_str.length(), dst_str.ptr(), word_meta_);
+        dst = tmp;
+      }
     }
   } else {
     dst = src;

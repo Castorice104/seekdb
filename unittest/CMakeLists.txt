@@ -22,3 +22,5 @@ target_link_libraries(fts_hot_path_tests PRIVATE oceanbase
 add_test(NAME fts_hot_path_tests COMMAND fts_hot_path_tests)
 
 target_sources(fts_hot_path_tests PRIVATE storage/fts/test_fts_relevance_usage.cpp)
+
+target_sources(fts_hot_path_tests PRIVATE sql/engine/sort/test_sort_string_hot_path.cpp)

@@ -354,9 +354,33 @@ int ObSortOpImpl::ObAdaptiveQS::compare_vals(int64_t l, int64_t r,
   return compare_cache(sort_rows_.at(l), sort_rows_.at(r), differ_at, common_prefix, cache_offset);
 }
 
+namespace {
+// A key is byte-comparable only when the executor registered a plain string
+// comparator for it (no LOB header). The mask is consumed by Compare to skip
+// the collation walk when both sides are byte-identical. Keys beyond bit 63
+// are simply not flagged and keep the normal comparator.
+uint64_t build_cmp_string_mask(const ExprFixedArray *exprs)
+{
+  uint64_t mask = 0;
+  if (nullptr != exprs) {
+    const int64_t count = MIN(exprs->count(), static_cast<int64_t>(64));
+    for (int64_t i = 0; i < count; ++i) {
+      const ObExpr *expr = exprs->at(i);
+      if (OB_NOT_NULL(expr)
+          && ob_is_string_type(expr->datum_meta_.type_)
+          && !expr->obj_meta_.has_lob_header()) {
+        mask |= (1ULL << i);
+      }
+    }
+  }
+  return mask;
+}
+} // namespace
+
 ObSortOpImpl::Compare::Compare()
   : ret_(OB_SUCCESS), sort_collations_(nullptr), sort_cmp_funs_(nullptr),
-    exec_ctx_(nullptr), access_ctx_(nullptr), cmp_count_(0), cmp_start_(0), cmp_end_(0)
+    cmp_string_mask_(0), exec_ctx_(nullptr), access_ctx_(nullptr),
+    cmp_count_(0), cmp_start_(0), cmp_end_(0)
 {
 }
 
@@ -364,7 +388,8 @@ int ObSortOpImpl::Compare::init(
     const ObIArray<ObSortFieldCollation> *sort_collations,
     const ObIArray<ObSortCmpFunc> *sort_cmp_funs,
     ObExecContext *exec_ctx,
-    bool enable_encode_sortkey)
+    bool enable_encode_sortkey,
+    uint64_t string_key_mask)
 {
   int ret = OB_SUCCESS;
   if (nullptr == sort_collations || nullptr == sort_cmp_funs || nullptr == exec_ctx) {
@@ -375,6 +400,7 @@ int ObSortOpImpl::Compare::init(
   } else {
     sort_collations_ = sort_collations;
     sort_cmp_funs_ = sort_cmp_funs;
+    cmp_string_mask_ = string_key_mask;
     exec_ctx_ = exec_ctx;
     cnt_ = sort_cmp_funs_->count();
     cmp_start_ = 0;
@@ -420,8 +446,18 @@ bool ObSortOpImpl::Compare::operator()(
     for (int64_t i = cmp_start_; 0 == cmp && i < cmp_end_ && OB_SUCC(ret); i++) {
       const ObSortFieldCollation& sort_collation = sort_collations_->at(i);
       const int64_t idx = sort_collation.field_idx_;
-      if (OB_FAIL(
-              sort_cmp_funs_->at(i).cmp_func_(lcells[idx], rcells[idx], cmp, access_ctx_))) {
+      const ObDatum &l_datum = lcells[idx];
+      const ObDatum &r_datum = rcells[idx];
+      if (i < 64 && ((cmp_string_mask_ >> i) & 1ULL)
+          && !l_datum.is_null() && !r_datum.is_null()
+          && l_datum.len_ == r_datum.len_
+          && (0 == l_datum.len_ || 0 == MEMCMP(l_datum.ptr_, r_datum.ptr_, l_datum.len_))) {
+        // Identical bytes are equal under every collation. FTS index build
+        // sorts long runs of the same word key, so this removes the collation
+        // walk from the dominant comparison.
+        continue;
+      }
+      if (OB_FAIL(sort_cmp_funs_->at(i).cmp_func_(l_datum, r_datum, cmp, access_ctx_))) {
       } else if (cmp < 0) {
         less = sort_collation.is_ascending_;
       } else if (cmp > 0) {
@@ -710,6 +746,7 @@ int ObSortOpImpl::init(
   const ObPushDownTopNFilterInfo *pd_topn_filter_info /* =nullptr */)
 {
   int ret = OB_SUCCESS;
+  cmp_string_mask_ = build_cmp_string_mask(exprs);
   if (is_inited()) {
     ret = OB_INIT_TWICE;
   } else if (OB_ISNULL(sort_collations) || OB_ISNULL(sort_cmp_funs)
@@ -717,7 +754,8 @@ int ObSortOpImpl::init(
     ret = OB_INVALID_ARGUMENT;
   } else if (OB_FAIL(exec_ctx->get_datum_access_ctx(datum_access_ctx_))) {
   } else if (OB_FAIL(comp_.init(sort_collations, sort_cmp_funs,
-                      exec_ctx, enable_encode_sortkey && !(part_cnt > 0)))) {
+                      exec_ctx, enable_encode_sortkey && !(part_cnt > 0),
+                      cmp_string_mask_))) {
   } else {
     local_merge_sort_ = in_local_order;
     need_rewind_ = need_rewind;
@@ -1079,7 +1117,8 @@ int ObSortOpImpl::before_add_row()
     ret = OB_NOT_INIT;
   } else if (OB_UNLIKELY(!got_first_row_)) {
     if (!comp_.is_inited() && OB_FAIL(comp_.init(sort_collations_, sort_cmp_funs_,
-                              exec_ctx_, enable_encode_sortkey_ && !(part_cnt_ > 0)))) {
+                              exec_ctx_, enable_encode_sortkey_ && !(part_cnt_ > 0),
+                              cmp_string_mask_))) {
     } else {
       got_first_row_ = true;
       int64_t size = OB_INVALID_ID == input_rows_ ? 0 : input_rows_ * input_width_;
@@ -2950,7 +2989,8 @@ int ObPrefixSortImpl::add_immediate_prefix(const common::ObIArray<ObExpr *> &all
               immediate_prefix_rows_ + pos))) {
   } else if (!comp_.is_inited()
              && OB_FAIL(comp_.init(sort_collations_, sort_cmp_funs_,
-                 exec_ctx_, enable_encode_sortkey_ && !(part_cnt_ > 0)))) {
+                 exec_ctx_, enable_encode_sortkey_ && !(part_cnt_ > 0),
+                 cmp_string_mask_))) {
   } else {
     lib::ob_sort(immediate_prefix_rows_ + pos, immediate_prefix_rows_ + pos + selector_size_,
               CopyableComparer(comp_));

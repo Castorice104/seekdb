@@ -1,0 +1,15 @@
+{
+  "base_commit": "97b23f4105c1d188676e1caef4298998c3ea1350",
+  "benchmark_files_unchanged": true,
+  "benchmark_source_sha256": {
+    "tools/benchmark/fts_large_bench.sh": "596ea5d1c0038e666b78aa94bef22d2dfb87ffc9e84dbc7e2a1da1f746424462",
+    "tools/benchmark/fts_large_bench_gen.py": "b0c816dd8211ac0471f60b72a37a3fb5c62580357a5b6d7ac95f5a8c2e3f143d",
+    "tools/benchmark/fts_large_bench_setup.sql": "311826751df7f51ac45156fb4284aeca9bd9197370aceb88f4fb92832b458108",
+    "tools/benchmark/fts_large_bench_score.py": "bea52eb1c68d05693bb3ac5b910ab0e2fa0e70e01582f40466898ee1e2e3ef55",
+    "tools/benchmark/fts_large_bench_baseline.json": "f4e97eddb2e49c982b967fc8047f7cf37177eebe53d648f6746d85aacda91f0c"
+  },
+  "differential_snapshot_sha256": "80fbfc3134be918fd9a2e631835f72e4d2473b165e0aa6c7b6c6f3380d738aee",
+  "differential_observations": 1118,
+  "relevance_observations": 68,
+  "native_tests": "16/16"
+}

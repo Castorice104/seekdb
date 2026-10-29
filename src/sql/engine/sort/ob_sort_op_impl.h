@@ -431,7 +431,8 @@ public:
     int init(const ObIArray<ObSortFieldCollation> *sort_collations,
         const ObIArray<ObSortCmpFunc> *sort_cmp_funs,
         ObExecContext *exec_ctx,
-        bool enable_encode_sortkey);
+        bool enable_encode_sortkey,
+        uint64_t string_key_mask = 0);
 
     // compare function for quick sort.
     bool operator()(const ObChunkDatumStore::StoredRow *l, const ObChunkDatumStore::StoredRow *r);
@@ -474,6 +475,9 @@ public:
     int ret_;
     const ObIArray<ObSortFieldCollation> *sort_collations_;
     const ObIArray<ObSortCmpFunc> *sort_cmp_funs_;
+    // Bit i is set only for a non-LOB string key whose comparison result is
+    // fully determined by the raw bytes. 0 means no fast path.
+    uint64_t cmp_string_mask_;
     ObExecContext *exec_ctx_;
     const common::ObDatumAccessContext *access_ctx_;
     bool enable_encode_sortkey_;
@@ -879,6 +883,7 @@ protected:
   ObTempBlockStore::BlockHolder compact_blk_holder_;
   ObChunkDatumStore::IteratedBlockHolder default_blk_holder_;
   const ExprFixedArray *sort_exprs_;
+  uint64_t cmp_string_mask_;
   common::ObCompressorType compress_type_;
   bool use_compact_format_;
   ObPushDownTopNFilter pd_topn_filter_;

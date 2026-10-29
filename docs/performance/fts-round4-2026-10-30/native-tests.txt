@@ -1,0 +1,47 @@
+Running main() from gtest_main.cc
+[==========] Running 16 tests from 3 test cases.
+[----------] Global test environment set-up.
+[----------] 10 tests from FtsHotPath
+[ RUN      ] FtsHotPath.unicode_character_classes
+[       OK ] FtsHotPath.unicode_character_classes (0 ms)
+[ RUN      ] FtsHotPath.word_frequency_and_collation_preserved
+[       OK ] FtsHotPath.word_frequency_and_collation_preserved (1 ms)
+[ RUN      ] FtsHotPath.english_normalization_growth_and_reuse
+[       OK ] FtsHotPath.english_normalization_growth_and_reuse (1 ms)
+[ RUN      ] FtsHotPath.collation_equal_words_keep_latest_spelling
+[       OK ] FtsHotPath.collation_equal_words_keep_latest_spelling (0 ms)
+[ RUN      ] FtsHotPath.casedown_identity_fast_path_matches_charset_tolower
+[       OK ] FtsHotPath.casedown_identity_fast_path_matches_charset_tolower (0 ms)
+[ RUN      ] FtsHotPath.ik_arbitrator_preserves_overlapping_tokens_and_smart_choice
+[       OK ] FtsHotPath.ik_arbitrator_preserves_overlapping_tokens_and_smart_choice (0 ms)
+[ RUN      ] FtsHotPath.ik_arbitrator_preserves_full_document_output_for_each_batch
+[       OK ] FtsHotPath.ik_arbitrator_preserves_full_document_output_for_each_batch (1 ms)
+[ RUN      ] FtsHotPath.ik_arbitrator_empty_chains_keep_cjk_singles
+[       OK ] FtsHotPath.ik_arbitrator_empty_chains_keep_cjk_singles (0 ms)
+[ RUN      ] FtsHotPath.ik_arbitrator_many_disjoint_chains_keep_order
+[       OK ] FtsHotPath.ik_arbitrator_many_disjoint_chains_keep_order (0 ms)
+[ RUN      ] FtsHotPath.ik_arbitrator_smart_choice_can_move_chain_start
+[       OK ] FtsHotPath.ik_arbitrator_smart_choice_can_move_chain_start (0 ms)
+[----------] 10 tests from FtsHotPath (3 ms total)
+
+[----------] 3 tests from FtsRelevanceUsage
+[ RUN      ] FtsRelevanceUsage.boolean_filter_and_shared_numeric_projection
+[       OK ] FtsRelevanceUsage.boolean_filter_and_shared_numeric_projection (0 ms)
+[ RUN      ] FtsRelevanceUsage.numeric_threshold_order_and_boolean_mode_keep_scores
+[       OK ] FtsRelevanceUsage.numeric_threshold_order_and_boolean_mode_keep_scores (0 ms)
+[ RUN      ] FtsRelevanceUsage.shared_dag_budget_and_subqueries_are_conservative
+[       OK ] FtsRelevanceUsage.shared_dag_budget_and_subqueries_are_conservative (1 ms)
+[----------] 3 tests from FtsRelevanceUsage (1 ms total)
+
+[----------] 3 tests from SortStringHotPath
+[ RUN      ] SortStringHotPath.identical_bytes_skip_collation_and_keep_tie_order
+[       OK ] SortStringHotPath.identical_bytes_skip_collation_and_keep_tie_order (9 ms)
+[ RUN      ] SortStringHotPath.collation_nulls_and_direction_preserved
+[       OK ] SortStringHotPath.collation_nulls_and_direction_preserved (0 ms)
+[ RUN      ] SortStringHotPath.lob_comparator_is_not_bypassed
+[       OK ] SortStringHotPath.lob_comparator_is_not_bypassed (0 ms)
+[----------] 3 tests from SortStringHotPath (9 ms total)
+
+[----------] Global test environment tear-down
+[==========] 16 tests from 3 test cases ran. (13 ms total)
+[  PASSED  ] 16 tests.
