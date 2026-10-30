@@ -308,6 +308,7 @@ int ObDASDomainUtils::build_ft_doc_word_infos(
     ret = OB_ALLOCATE_MEMORY_FAILED;
   } else {
     int64_t i = 0;
+    ObString stable_fulltext;
     rows = new (rows_buf) blocksstable::ObDatumRow[ft_word_map.size()];
     for (ObFTWordMap::const_iterator iter = ft_word_map.begin();
          OB_SUCC(ret) && iter != ft_word_map.end();
@@ -323,12 +324,28 @@ int ObDASDomainUtils::build_ft_doc_word_infos(
         const int64_t doc_id_idx = is_fts_index_aux ? 1 : 0;
         const int64_t word_cnt_idx = 2;
         const int64_t doc_len_idx = 3;
-        rows[i].storage_datums_[word_idx].set_datum(ft_word.get_word());
+        ObDatum word_datum = ft_word.get_word();
+        const ObString word = word_datum.get_string();
+        const uintptr_t source_begin = reinterpret_cast<uintptr_t>(fulltext.ptr());
+        const uintptr_t word_begin = reinterpret_cast<uintptr_t>(word.ptr());
+        // Identity normalization may borrow the input. Cached rows outlive the
+        // temporary LOB buffer used by a table scan. Copy that buffer at most
+        // once and retain the original offsets; already-owned tokens need no copy.
+        if (word_begin >= source_begin && word_begin - source_begin <= fulltext.length()
+            && word.length() <= fulltext.length() - (word_begin - source_begin)) {
+          if (stable_fulltext.empty()) {
+            ret = ob_write_string(allocator, fulltext, stable_fulltext);
+          }
+          if (OB_SUCC(ret)) {
+            word_datum.set_string(stable_fulltext.ptr() + (word_begin - source_begin), word.length());
+          }
+        }
+        rows[i].storage_datums_[word_idx].set_datum(word_datum);
         rows[i].storage_datums_[doc_id_idx].shallow_copy_from_datum(doc_id_datum);
         rows[i].storage_datums_[word_cnt_idx].set_uint(word_cnt);
         rows[i].storage_datums_[doc_len_idx].set_uint(doc_length);
-        if (OB_FAIL(word_rows.push_back(&rows[i]))) {
-        } else {
+        if (OB_SUCC(ret) && OB_FAIL(word_rows.push_back(&rows[i]))) {
+        } else if (OB_SUCC(ret)) {
           ++i;
         }
       }
