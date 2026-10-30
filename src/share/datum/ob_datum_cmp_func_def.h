@@ -376,7 +376,28 @@ struct ObDatumStrCmpImpl
   static int OB_INLINE cmp(const ObDatum &l, const ObDatum &r, int &cmp_ret,
                            const ObCollationType cs, const bool with_end_space)
   {
-    cmp_ret = ObCharset::strcmpsp(cs, l.ptr_, l.len_, r.ptr_, r.len_, with_end_space);
+    // The datum already guarantees the lengths and the caller has checked
+    // nullness. Resolve the collation handler once and skip the repeated
+    // argument validation performed by ObCharset::strcmpsp, which is a
+    // measurable part of index-build sort comparisons. Suspicious inputs
+    // (null pointer with non-zero length, invalid collation, missing handler)
+    // keep the validating path.
+    const ObCharsetInfo *cs_info = nullptr;
+    if (OB_LIKELY((nullptr != l.ptr_ || 0 == l.len_)
+                  && (nullptr != r.ptr_ || 0 == r.len_)
+                  && nullptr != (cs_info = ObCharset::get_charset(cs))
+                  && nullptr != cs_info->coll
+                  && nullptr != cs_info->coll->strnncollsp)) {
+      cmp_ret = cs_info->coll->strnncollsp(
+          cs_info,
+          reinterpret_cast<const unsigned char *>(l.ptr_),
+          l.len_,
+          reinterpret_cast<const unsigned char *>(r.ptr_),
+          r.len_,
+          with_end_space);
+    } else {
+      cmp_ret = ObCharset::strcmpsp(cs, l.ptr_, l.len_, r.ptr_, r.len_, with_end_space);
+    }
     cmp_ret = cmp_ret > 0 ? 1 : (cmp_ret < 0 ? -1 : 0);
     return OB_SUCCESS;
   }
