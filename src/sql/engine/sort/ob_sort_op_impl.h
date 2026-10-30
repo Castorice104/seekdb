@@ -475,6 +475,11 @@ public:
     int ret_;
     const ObIArray<ObSortFieldCollation> *sort_collations_;
     const ObIArray<ObSortCmpFunc> *sort_cmp_funs_;
+    // Contiguous data pointers cached at init. The comparator is the hottest
+    // loop of index-build sorts; ObIArray::at() is an out-of-line virtual call
+    // made twice per key per comparison.
+    const ObSortFieldCollation *collations_data_;
+    const ObSortCmpFunc *cmp_funs_data_;
     // Bit i is set only for a non-LOB string key whose comparison result is
     // fully determined by the raw bytes. 0 means no fast path.
     uint64_t cmp_string_mask_;
