@@ -29,3 +29,5 @@ add_executable(fts_parser_microbench storage/fts/fts_parser_microbench.cpp)
 target_link_libraries(fts_parser_microbench PRIVATE oceanbase pthread)
 
 target_sources(fts_hot_path_tests PRIVATE storage/fts/test_fts_index_row_lifetime.cpp)
+
+target_sources(fts_hot_path_tests PRIVATE storage/fts/test_fts_token_scan.cpp)
