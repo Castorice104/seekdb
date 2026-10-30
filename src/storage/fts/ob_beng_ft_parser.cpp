@@ -49,30 +49,15 @@ int ObBEngFTParser::get_next_token(
     }
   } else if (OB_ISNULL(token.ptr_) || OB_UNLIKELY(0 >= token.len_ || 0 >= token_freq)) {
     ret = OB_INVALID_ARGUMENT;
+  } else if (OB_ISNULL(buf = static_cast<char *>(allocator_.alloc(token.len_)))) {
+    ret = OB_ALLOCATE_MEMORY_FAILED;
   } else {
-    if (token.len_ > token_buffer_capacity_ - token_buffer_used_) {
-      // Never relocate previously published tokens. Blocks belong to the
-      // document allocator and remain valid after the iterator is destroyed.
-      const int64_t document_bound = static_cast<int64_t>(doc_.len_) * analysis_ctx_.cs_->casedn_multiply;
-      const int64_t capacity = MAX(static_cast<int64_t>(token.len_), MIN(document_bound, 4096L));
-      if (OB_ISNULL(buf = static_cast<char *>(allocator_.alloc(capacity)))) {
-        ret = OB_ALLOCATE_MEMORY_FAILED;
-      } else {
-        token_buffer_ = buf;
-        token_buffer_capacity_ = capacity;
-        token_buffer_used_ = 0;
-      }
-    }
-    if (OB_SUCC(ret)) {
-      buf = token_buffer_ + token_buffer_used_;
-      token_buffer_used_ += token.len_;
-      MEMCPY(buf, token.ptr_, token.len_);
-      word = buf;
-      word_len = token.len_;
-      char_len = token.len_;
-      word_freq = token_freq;
-      LOG_DEBUG("succeed to add word", K(ObString(word_len, word)), K(word_freq));
-    }
+    MEMCPY(buf, token.ptr_, token.len_);
+    word = buf;
+    word_len = token.len_;
+    char_len = token.len_;
+    word_freq = token_freq;
+    LOG_DEBUG("succeed to add word", K(ObString(word_len, word)), K(word_freq));
   }
   return ret;
 }
@@ -125,9 +110,6 @@ void ObBEngFTParser::reset()
   english_analyzer_.reset();
   doc_.reset();
   token_stream_ = nullptr;
-  token_buffer_ = nullptr;
-  token_buffer_capacity_ = 0;
-  token_buffer_used_ = 0;
   is_inited_ = false;
 }
 

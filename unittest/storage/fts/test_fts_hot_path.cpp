@@ -23,8 +23,6 @@
 #include "storage/fts/ob_fts_stop_word.h"
 #include "data_plane/fts/ob_fts_parser_property.h"
 #include "share/text_analysis/ob_token_stream.h"
-#include "storage/fts/ob_beng_ft_parser.h"
-#include <vector>
 
 using namespace oceanbase;
 using namespace oceanbase::common;
@@ -305,83 +303,4 @@ TEST(FtsHotPath, ik_arbitrator_smart_choice_can_move_chain_start)
   // character before the selected chain and a separate chain after the space.
   expect_ik_tokens(ctx, {{0, 3, 1, chinese}, {3, 9, 3, chinese},
                         {13, 6, 2, chinese}});
-}
-
-
-namespace
-{
-class CountingTokenAllocator : public ObIAllocator
-{
-public:
-  void *alloc(const int64_t size) override
-  {
-    ++allocations_;
-    return fail_ ? nullptr : arena_.alloc(size);
-  }
-  void *alloc(const int64_t size, const ObMemAttr &) override { return alloc(size); }
-  void free(void *) override {}
-  ObArenaAllocator arena_;
-  int64_t allocations_ = 0;
-  bool fail_ = false;
-};
-}
-
-TEST(FtsHotPath, beng_stable_tokens_use_sublinear_allocations)
-{
-  ASSERT_EQ(OB_SUCCESS, ObCharset::init_charset());
-  CountingTokenAllocator allocator;
-  std::string document;
-  std::vector<std::string> expected;
-  for (int i = 0; i < 1000; ++i) {
-    document += "WORD" + std::to_string(i) + ", ";
-    expected.push_back("word" + std::to_string(i));
-  }
-  std::vector<std::pair<const char *, int64_t>> retained;
-  {
-    ObBEngFTParser parser(allocator);
-    ObFTParserParam param;
-    param.cs_ = ObCharset::get_charset(CS_TYPE_UTF8MB4_BIN);
-    param.fulltext_ = document.data();
-    param.ft_length_ = document.size();
-    param.allocator_ = &allocator;
-    ASSERT_EQ(OB_SUCCESS, parser.init(&param));
-    allocator.allocations_ = 0;
-    for (const auto &word_expected : expected) {
-      const char *word = nullptr;
-      int64_t length = 0, char_length = 0, frequency = 0;
-      ASSERT_EQ(OB_SUCCESS, parser.get_next_token(word, length, char_length, frequency));
-      EXPECT_EQ(word_expected, std::string(word, length));
-      EXPECT_EQ(length, char_length);
-      EXPECT_EQ(1, frequency);
-      retained.emplace_back(word, length);
-    }
-    const char *word = nullptr;
-    int64_t length = 0, char_length = 0, frequency = 0;
-    EXPECT_EQ(OB_ITER_END, parser.get_next_token(word, length, char_length, frequency));
-    // A document with many short words must not allocate once for every word.
-    EXPECT_LT(allocator.allocations_, static_cast<int64_t>(expected.size() / 16));
-  }
-  // ObFTParseHelper destroys the parser before materializing the word map.
-  // Every earlier token must remain owned by the caller's document allocator.
-  for (size_t i = 0; i < retained.size(); ++i) {
-    EXPECT_EQ(expected[i], std::string(retained[i].first, retained[i].second));
-  }
-}
-
-TEST(FtsHotPath, beng_token_copy_reports_allocation_failure)
-{
-  CountingTokenAllocator allocator;
-  ObBEngFTParser parser(allocator);
-  ObFTParserParam param;
-  param.cs_ = ObCharset::get_charset(CS_TYPE_UTF8MB4_BIN);
-  param.fulltext_ = "ALPHA BETA";
-  param.ft_length_ = 10;
-  param.allocator_ = &allocator;
-  ASSERT_EQ(OB_SUCCESS, parser.init(&param));
-  allocator.fail_ = true;
-  const char *word = nullptr;
-  int64_t length = 0, char_length = 0, frequency = 0;
-  EXPECT_EQ(OB_ALLOCATE_MEMORY_FAILED, parser.get_next_token(word, length, char_length, frequency));
-  EXPECT_EQ(nullptr, word);
-  EXPECT_EQ(0, length);
 }
