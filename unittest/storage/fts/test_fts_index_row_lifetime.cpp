@@ -26,7 +26,15 @@ using namespace oceanbase;
 using namespace oceanbase::common;
 using namespace oceanbase::sql;
 
-TEST(FtsIndexLifetime, row_cache_retains_words_after_input_buffer_is_reused)
+class FtsIndexLifetime : public ::testing::Test
+{
+protected:
+  void SetUp() override { ASSERT_EQ(OB_SUCCESS, flow_.init()); }
+  void TearDown() override { flow_.deinit(); }
+  lib::Flow flow_{ROOT_CONTEXT};
+};
+
+TEST_F(FtsIndexLifetime, row_cache_retains_words_after_input_buffer_is_reused)
 {
   ASSERT_EQ(OB_SUCCESS, ObCharset::init_charset());
   for (const bool word_first : {false, true}) {
@@ -63,7 +71,7 @@ TEST(FtsIndexLifetime, row_cache_retains_words_after_input_buffer_is_reused)
   }
 }
 
-TEST(FtsIndexLifetime, repeated_documents_release_source_and_reuse_cache)
+TEST_F(FtsIndexLifetime, repeated_documents_release_source_and_reuse_cache)
 {
   ASSERT_EQ(OB_SUCCESS, ObCharset::init_charset());
   for (const bool word_first : {false, true}) {
@@ -100,5 +108,56 @@ TEST(FtsIndexLifetime, repeated_documents_release_source_and_reuse_cache)
       EXPECT_EQ(OB_ITER_END, cache.segment(meta, id, ObString()));
       EXPECT_EQ(OB_ITER_END, cache.get_next_row(row));
     }
+  }
+}
+
+namespace
+{
+class FailingWordAllocator : public ObIAllocator
+{
+public:
+  void *alloc(const int64_t size) override
+  {
+    return ++calls_ == fail_at_ ? nullptr : arena_.alloc(size);
+  }
+  void *alloc(const int64_t size, const ObMemAttr &) override { return alloc(size); }
+  void free(void *ptr) override { arena_.free(ptr); }
+  void reuse(const int64_t fail_at) { arena_.reuse(); calls_ = 0; fail_at_ = fail_at; }
+  ObArenaAllocator arena_;
+  int64_t calls_ = 0;
+  int64_t fail_at_ = 0;
+};
+}
+
+TEST_F(FtsIndexLifetime, allocation_failure_does_not_publish_borrowed_words)
+{
+  ASSERT_EQ(OB_SUCCESS, ObCharset::init_charset());
+  FailingWordAllocator allocator;
+  storage::ObFTParseHelper helper;
+  ASSERT_EQ(OB_SUCCESS, helper.init(&allocator, ObString::make_string("ngram.1"), ObString()));
+  ObObjMeta meta;
+  meta.set_varchar();
+  meta.set_collation_type(CS_TYPE_UTF8MB4_BIN);
+  int64_t id_value = 1;
+  ObDatum id;
+  id.ptr_ = reinterpret_cast<const char *>(&id_value);
+  id.set_int(id_value);
+  const ObString source = ObString::make_string("数据库全文索引");
+  ObDomainIndexRow rows;
+  ASSERT_EQ(OB_SUCCESS, ObDASDomainUtils::generate_fulltext_word_rows(
+      allocator, &helper, meta, id, source, true, rows));
+  const int64_t allocation_count = allocator.calls_;
+  ASSERT_GT(allocation_count, 0);
+  for (int64_t failure = 1; failure <= allocation_count; ++failure) {
+    rows.reuse();
+    allocator.reuse(failure);
+    EXPECT_EQ(OB_ALLOCATE_MEMORY_FAILED, ObDASDomainUtils::generate_fulltext_word_rows(
+        allocator, &helper, meta, id, source, true, rows)) << failure;
+    EXPECT_EQ(0, rows.count()) << failure;
+    rows.reuse();
+    allocator.reuse(0);
+    ASSERT_EQ(OB_SUCCESS, ObDASDomainUtils::generate_fulltext_word_rows(
+        allocator, &helper, meta, id, source, true, rows));
+    EXPECT_EQ(6, rows.count());
   }
 }
