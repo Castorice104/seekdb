@@ -24,3 +24,6 @@ add_test(NAME fts_hot_path_tests COMMAND fts_hot_path_tests)
 target_sources(fts_hot_path_tests PRIVATE storage/fts/test_fts_relevance_usage.cpp)
 
 target_sources(fts_hot_path_tests PRIVATE sql/engine/sort/test_sort_string_hot_path.cpp)
+
+add_executable(fts_parser_microbench storage/fts/fts_parser_microbench.cpp)
+target_link_libraries(fts_parser_microbench PRIVATE oceanbase pthread)
