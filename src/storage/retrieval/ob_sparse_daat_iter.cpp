@@ -23,6 +23,20 @@ namespace oceanbase
 namespace storage
 {
 
+// Only BOOL of the exact DOUBLE projection written by filter_on_demand is
+// redundant expression evaluation. Numeric thresholds, casts and other DAGs
+// retain the normal evaluator, including its stack checks.
+bool ObSparseRetrievalMergeParam::can_eval_bool_filter_directly() const
+{
+  return nullptr != filter_expr_ && nullptr != relevance_proj_expr_
+      && T_OP_BOOL == filter_expr_->type_
+      && common::ObInt32Type == filter_expr_->datum_meta_.type_
+      && !filter_expr_->need_stack_check_
+      && 1 == filter_expr_->arg_cnt_ && nullptr != filter_expr_->args_
+      && relevance_proj_expr_ == filter_expr_->args_[0]
+      && common::ObDoubleType == relevance_proj_expr_->datum_meta_.type_;
+}
+
 ObSRMergeCmp::ObSRMergeCmp()
   : cmp_func_(nullptr),
     iter_ids_(nullptr),
@@ -82,7 +96,8 @@ ObSRDaaTIterImpl::ObSRDaaTIterImpl()
     buffered_relevances_(),
     next_round_iter_idxes_(),
     next_round_cnt_(0),
-    set_datum_func_(nullptr)
+    set_datum_func_(nullptr),
+    direct_bool_filter_(false)
 {
 }
 
@@ -135,6 +150,7 @@ int ObSRDaaTIterImpl::init(
       next_round_cnt_ = dim_iters.count();
       input_row_cnt_ = 0;
       output_row_cnt_ = 0;
+      direct_bool_filter_ = iter_param.can_eval_bool_filter_directly();
       is_inited_ = true;
     }
   }
@@ -158,6 +174,7 @@ void ObSRDaaTIterImpl::reset()
   next_round_cnt_ = 0;
   input_row_cnt_ = 0;
   output_row_cnt_ = 0;
+  direct_bool_filter_ = false;
   is_inited_ = false;
 }
 
@@ -367,7 +384,12 @@ int ObSRDaaTIterImpl::filter_on_demand(const int64_t count, const double relevan
       relevance_proj_expr->set_evaluated_projected(*eval_ctx);
       ObDatum *filter_res = nullptr;
       filter_expr->clear_evaluated_flag(*eval_ctx);
-      if (OB_FAIL(filter_expr->eval(*eval_ctx, filter_res))) {
+      if (direct_bool_filter_) {
+        // Match the built-in BOOL(DOUBLE) zero test exactly. Leave this BOOL's
+        // evaluated bit clear: a shared SELECT/residual consumer may evaluate
+        // it lazily from the already-published relevance projection.
+        need_project = (0.0 != relevance);
+      } else if (OB_FAIL(filter_expr->eval(*eval_ctx, filter_res))) {
       } else {
         need_project = !(filter_res->is_null() || 0 == filter_res->get_int());
       }

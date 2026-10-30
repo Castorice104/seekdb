@@ -115,6 +115,7 @@ struct ObSparseRetrievalMergeParam
       max_batch_size_(1)
   {}
   ~ObSparseRetrievalMergeParam() {}
+  bool can_eval_bool_filter_directly() const;
   bool need_project_relevance() const { return relevance_proj_expr_ != nullptr; }
   bool need_filter() const { return filter_expr_ != nullptr; }
   bool need_pushdown_topk() const { return topk_limit_ > 0; }
