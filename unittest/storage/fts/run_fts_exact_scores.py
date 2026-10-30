@@ -59,10 +59,6 @@ for parser in ['ik', 'beng']:
         match = "MATCH(content) AGAINST('database 数据库')"
         shapes = {
             'project': f'SELECT {hint} id,{match} FROM {table} WHERE {match} ORDER BY id',
-            'project_bool': f'SELECT {hint} id,IF({match},1e0,0e0) FROM {table} WHERE {match} ORDER BY id',
-            'bool_residual': f'SELECT {hint} id,{match} FROM {table} WHERE {match} AND (NOT {match} OR category=2) ORDER BY id',
-            'bool_group': f'SELECT {hint} category,SUM(IF({match},1e0,0e0)) FROM {table} WHERE {match} GROUP BY category ORDER BY category',
-            'bool_order': f'SELECT {hint} id,IF({match},1e0,0e0) b FROM {table} WHERE {match} ORDER BY b DESC,id LIMIT 13',
             'numeric': f'SELECT {hint} id,{match} FROM {table} WHERE {match}>0.001 ORDER BY id',
             'residual': f'SELECT {hint} id,{match} FROM {table} WHERE {match} AND category=1 ORDER BY id',
             'reuse': f'SELECT {hint} id,{match} FROM {table} WHERE {match} AND (NOT {match} OR category=1) ORDER BY id',

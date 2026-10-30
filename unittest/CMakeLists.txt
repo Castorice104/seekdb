@@ -27,5 +27,3 @@ target_sources(fts_hot_path_tests PRIVATE sql/engine/sort/test_sort_string_hot_p
 
 add_executable(fts_parser_microbench storage/fts/fts_parser_microbench.cpp)
 target_link_libraries(fts_parser_microbench PRIVATE oceanbase pthread)
-
-target_sources(fts_hot_path_tests PRIVATE storage/fts/test_fts_retrieval_hot_path.cpp)
