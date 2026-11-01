@@ -10,6 +10,7 @@
 #endif
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* Tunables. Defaults keep the contest baseline behaviour; the environment
  * overrides exist so one binary can measure several graph-build candidates in
@@ -23,6 +24,24 @@ static long env_long(const char* name, long dflt)
   x = strtol(v, &end, 10);
   if (end == v || x <= 0) return dflt;
   return x;
+}
+
+
+static double env_dbl(const char* name, double dflt)
+{
+  const char* v = getenv(name);
+  char* end = 0;
+  double x = 0;
+  if (!v || !*v) return dflt;
+  x = strtod(v, &end);
+  if (end == v) return dflt;
+  return x;
+}
+
+static const char* env_str(const char* name, const char* dflt)
+{
+  const char* v = getenv(name);
+  return (v && *v) ? v : dflt;
 }
 
 typedef struct {
@@ -78,17 +97,40 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
   dset.dl_tensor.shape = ds; dset.dl_tensor.strides = 0; dset.dl_tensor.byte_offset = 0;
 
   graph_degree = env_long("SEEKDB_CUVS_GRAPH_DEGREE", 128);
-  intermediate = env_long("SEEKDB_CUVS_INTERMEDIATE_DEGREE", 256);
-  niter        = env_long("SEEKDB_CUVS_NITER", 100);
+  intermediate = env_long("SEEKDB_CUVS_INTERMEDIATE_DEGREE", 128);
+  niter        = env_long("SEEKDB_CUVS_NITER", 80);
 
   if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) goto fail_res;
-  h->ip->build_algo = NN_DESCENT;
   h->ip->graph_degree = graph_degree;
   h->ip->intermediate_graph_degree = intermediate;
   h->ip->nn_descent_niter = niter;
-  fprintf(stderr, "[seekdb_cuvs] build n=%ld dim=%ld graph_degree=%ld "
-                  "intermediate_graph_degree=%ld nn_descent_niter=%ld\n",
-          n, dim, graph_degree, intermediate, niter);
+  {
+    const char* algo = env_str("SEEKDB_CUVS_BUILD_ALGO", "nn_descent");
+    double refine = env_dbl("SEEKDB_CUVS_REFINEMENT", 0.0);
+    if (strcmp(algo, "ivf_pq") == 0 || strcmp(algo, "auto") == 0) {
+      struct cuvsIvfPqParams* gb =
+          (struct cuvsIvfPqParams*)calloc(1, sizeof(*gb));
+      if (gb == NULL) goto fail_ip;
+      if (cuvsIvfPqIndexParamsCreate(&gb->ivf_pq_build_params) != CUVS_SUCCESS) {
+        free(gb); goto fail_ip;
+      }
+      if (cuvsIvfPqSearchParamsCreate(&gb->ivf_pq_search_params) != CUVS_SUCCESS) {
+        cuvsIvfPqIndexParamsDestroy(gb->ivf_pq_build_params);
+        free(gb); goto fail_ip;
+      }
+      gb->ivf_pq_build_params->metric = L2Expanded;
+      gb->refinement_rate = (float)refine;
+      h->ip->graph_build_params = gb;
+      h->ip->build_algo = (strcmp(algo, "auto") == 0) ? AUTO_SELECT : IVF_PQ;
+    } else if (strcmp(algo, "iterative") == 0) {
+      h->ip->build_algo = ITERATIVE_CAGRA_SEARCH;
+    } else {
+      h->ip->build_algo = NN_DESCENT;
+    }
+    fprintf(stderr, "[seekdb_cuvs] build n=%ld dim=%ld algo=%s refine=%.2f graph_degree=%ld "
+                    "intermediate_graph_degree=%ld nn_descent_niter=%ld\n",
+            n, dim, algo, refine, graph_degree, intermediate, niter);
+  }
   if (cuvsCagraIndexCreate(&h->idx)      != CUVS_SUCCESS) goto fail_ip;
   if (cuvsCagraBuild(h->res, h->ip, &dset, h->idx) != CUVS_SUCCESS) goto fail_idx;
   h->n = n; h->dim = dim;
