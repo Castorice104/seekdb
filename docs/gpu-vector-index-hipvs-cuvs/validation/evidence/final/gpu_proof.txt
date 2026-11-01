@@ -1,0 +1,16 @@
+== observer pid: 72688
+== /dev/kfd handle held by observer:
+== VRAM used by this GPU (bytes):
+26759168
+== rocm-smi summary:
+
+
+============================ ROCm System Management Interface ============================
+================================== Memory Usage (Bytes) ==================================
+GPU[0]		: VRAM Total Memory (B): 51522830336
+GPU[0]		: VRAM Total Used Memory (B): 26759168
+==========================================================================================
+================================== End of ROCm SMI Log ===================================
+50 queries in 0.65s
+== VRAM after 50 top-100 queries (bytes):
+473530368

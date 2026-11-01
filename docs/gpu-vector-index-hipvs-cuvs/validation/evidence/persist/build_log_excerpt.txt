@@ -1,0 +1,10 @@
+Excerpt of the observer log from the restart-persistence run (candidate bridge,
+10k x 128d table). Shows the CAGRA build actually executed on the GPU with
+intermediate_graph_degree=128 and nn_descent_niter=80, and the search params used.
+
+[seekdb_cuvs] build n=10000 dim=128 algo=nn_descent refine=0.00 graph_degree=128 intermediate_graph_degree=128 nn_descent_niter=80
+[seekdb_cuvs] search params topk=10 itopk=512 search_width=4
+[seekdb_cuvs] search params topk=10 itopk=512 search_width=4
+[seekdb_cuvs] build n=10000 dim=128 algo=nn_descent refine=0.00 graph_degree=128 intermediate_graph_degree=128 nn_descent_niter=80
+[seekdb_cuvs] search params topk=10 itopk=512 search_width=4
+[seekdb_cuvs] search params topk=100 itopk=512 search_width=4
