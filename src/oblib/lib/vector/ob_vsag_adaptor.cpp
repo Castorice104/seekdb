@@ -167,6 +167,16 @@ static std::shared_ptr<void> ob_cuvs_wrap(void *handle) {
   if (handle == nullptr) { return std::shared_ptr<void>(); }
   return std::shared_ptr<void>(handle, [](void *h) { seekdb_cuvs_free(h); });
 }
+// Benchmark knob: SEEKDB_CUVS_SYNC_SEARCH=1 forces the pre-optimisation path
+// (one 32MB pthread per call, no persistent worker) so a single binary can
+// measure both behaviours under identical build conditions.
+static bool ob_cuvs_sync_search() {
+  static const bool v = []() {
+    const char *e = ::getenv("SEEKDB_CUVS_SYNC_SEARCH");
+    return e != nullptr && e[0] != '\0' && e[0] != '0';
+  }();
+  return v;
+}
 // One unit of GPU work: optional lazy (re)build followed by the cuVS search.
 struct ObCuvsTask {
   ObCuvsEntry *ent;
@@ -392,7 +402,7 @@ static bool ob_cuvs_try_search(void *key, vsag::Allocator *alloc,
   bool built = false;
   int rc = -1;
   ObCuvsTask task{ent, query, 1, topk, n, need_build, ent->q_off_.data(), ent->q_dst_.data(), -1, false};
-  if (ob_cuvs_dispatch(ent, task)) {
+  if (!ob_cuvs_sync_search() && ob_cuvs_dispatch(ent, task)) {
     built = task.built_;
     rc = task.rc_;
   } else {
@@ -2212,7 +2222,7 @@ long cuvs_knn_search_batch(void *key, const float *queries, long nq, long topk,
   bool built = false;
   bool served = false;
   ObCuvsTask task{ent, queries, nq, topk, n, need_build, ent->q_off_.data(), ent->q_dst_.data(), -1, false};
-  if (ob_cuvs_dispatch(ent, task)) {
+  if (!ob_cuvs_sync_search() && ob_cuvs_dispatch(ent, task)) {
     built = task.built_;
     served = (task.rc_ == 0);
   } else {
