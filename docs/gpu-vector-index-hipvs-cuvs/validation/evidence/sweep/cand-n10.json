@@ -1,0 +1,70 @@
+{
+  "bridge": "/work/bridge/libseekdb_cuvs_bridge.so",
+  "bridge_sha256": "fd3aa951a632fe37bde730243a8361704c132d16b74ce59fe61c84b75c25cd29",
+  "build_ddl_seconds": 13.585,
+  "build_seconds": 13.585,
+  "dataset": {
+    "base_sha256": "fc9bf0ddbd9e5e810dd35cf1edeec6edbad10c50206321a04d7f77fb9219c28c",
+    "bytes": {
+      "base": 128000000,
+      "query": 2097152
+    },
+    "created_at": "2026-11-01T13:24:39+0800",
+    "dataset": "sift250k",
+    "dim": 128,
+    "n": 250000,
+    "notes": "SIFT subset: first 250000 rows of sift250k_base.fvecs; the official SIFT250K is only available on the evaluation platform",
+    "nq": 4096,
+    "query_sha256": "fb5b67515be0378ca691e11ab68c18100e19b9902e6f78b1f6b6e543d074ae04",
+    "seed": 1314,
+    "truth_sha256": "0425b7e6ee95e6eac9fd160808499f414ff89931e764ea18df2204de0e8c5b6c"
+  },
+  "ef_construction": 200,
+  "ef_search": 64,
+  "finished_at": "2026-11-01T07:02:24+0000",
+  "host": "j-l3umtlcjfkzllwno3js4apya2h",
+  "lib": "cuvs",
+  "load_seconds": 4.08,
+  "m": 16,
+  "nproc": 128,
+  "observer": "/amd-work/src/tree-cand/build_release/src/observer/seekdb",
+  "observer_log_markers": {
+    "cuvs_build": 0,
+    "cuvs_serve": 0,
+    "deserialized GPU CAGRA snapshot": 0,
+    "lazily built VSAG fallback": 0,
+    "serialized GPU CAGRA snapshot": 0
+  },
+  "observer_log_tail": "Starting seekdb (OceanBase seekdb 1.4.0.0) source revision 1-.\nChange working directory to base dir. path='/work/w-cand-n10/run/'\nThe log file is in the directory: '/work/w-cand-n10/run/log/'\n",
+  "observer_sha256": "61e0d22a905a662d1b108db0a4b0e91eb858e69fa2849cd8e618e019315a5c8a",
+  "per_topk": {
+    "10": {
+      "empty_results": 0,
+      "integrity_errors": 0,
+      "ms_per_query": 3.493,
+      "qps": 286.27,
+      "queries": 4096,
+      "recall": 0.999927,
+      "seconds": 14.308
+    },
+    "100": {
+      "empty_results": 0,
+      "integrity_errors": 0,
+      "ms_per_query": 3.854,
+      "qps": 259.48,
+      "queries": 4096,
+      "recall": 0.999551,
+      "seconds": 15.785
+    }
+  },
+  "qps_geomean": 272.546,
+  "started_at": "2026-11-01T07:01:33+0000",
+  "tag": "cand-n10",
+  "topk": [
+    10,
+    100
+  ],
+  "vm_hwm_mb": 2823.6,
+  "vm_rss_mb": 2451.7,
+  "vram_peak_mb": 699.0
+}

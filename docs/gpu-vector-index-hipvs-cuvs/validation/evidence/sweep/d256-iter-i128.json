@@ -1,0 +1,70 @@
+{
+  "bridge": "/work/bridge/libseekdb_cuvs_bridge.so",
+  "bridge_sha256": "4a8b150f5ab118e0646af3f83fa2a812d5de5b5e84aab84aace0ba4ad74c4fe0",
+  "build_ddl_seconds": 23.876,
+  "build_seconds": 23.876,
+  "dataset": {
+    "base_sha256": "8355f6bf42bb0e29f562c7519d17e5247d9700367047117adfc7f6f896cc6556",
+    "bytes": {
+      "base": 256000000,
+      "query": 4194304
+    },
+    "created_at": "2026-11-01T07:03:49+0000",
+    "dataset": "synthetic",
+    "dim": 256,
+    "n": 250000,
+    "notes": "proxy dataset, fixed seed 7, 250000 x 256 normalized gaussian; cannot replace Hidden250K",
+    "nq": 4096,
+    "query_sha256": "9c8248a34fd7de597b8a8d8e2885cca11ae8aad96fc320028908c8a55ee6e221",
+    "seed": 7,
+    "truth_sha256": "0f1dca9c2320731e0aaf26f3af630dcc019938b680d02282e97272e865b41e2d"
+  },
+  "ef_construction": 200,
+  "ef_search": 64,
+  "finished_at": "2026-11-01T07:52:50+0000",
+  "host": "j-l3umtlcjfkzllwno3js4apya2h",
+  "lib": "cuvs",
+  "load_seconds": 10.991,
+  "m": 16,
+  "nproc": 128,
+  "observer": "/amd-work/src/tree-cand/build_release/src/observer/seekdb",
+  "observer_log_markers": {
+    "cuvs_build": 0,
+    "cuvs_serve": 0,
+    "deserialized GPU CAGRA snapshot": 0,
+    "lazily built VSAG fallback": 0,
+    "serialized GPU CAGRA snapshot": 0
+  },
+  "observer_log_tail": "Starting seekdb (OceanBase seekdb 1.4.0.0) source revision 1-.\nChange working directory to base dir. path='/work/w7-d256-iter-i128/run/'\nThe log file is in the directory: '/work/w7-d256-iter-i128/run/log/'\n",
+  "observer_sha256": "61e0d22a905a662d1b108db0a4b0e91eb858e69fa2849cd8e618e019315a5c8a",
+  "per_topk": {
+    "10": {
+      "empty_results": 0,
+      "integrity_errors": 0,
+      "ms_per_query": 7.867,
+      "qps": 127.11,
+      "queries": 4096,
+      "recall": 0.969849,
+      "seconds": 32.225
+    },
+    "100": {
+      "empty_results": 0,
+      "integrity_errors": 0,
+      "ms_per_query": 7.863,
+      "qps": 127.17,
+      "queries": 4096,
+      "recall": 0.910017,
+      "seconds": 32.209
+    }
+  },
+  "qps_geomean": 127.14,
+  "started_at": "2026-11-01T07:51:07+0000",
+  "tag": "d256-iter-i128",
+  "topk": [
+    10,
+    100
+  ],
+  "vm_hwm_mb": 3072.9,
+  "vm_rss_mb": 3054.4,
+  "vram_peak_mb": 978.3
+}
