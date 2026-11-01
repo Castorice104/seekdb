@@ -1,0 +1,70 @@
+{
+  "bridge": "/work/bridge/libseekdb_cuvs_bridge.so",
+  "bridge_sha256": "030b36246e3fc4e92743e432d00979f7a729fdf36fb8b6ff482b75fb008e9da6",
+  "build_ddl_seconds": 46.61,
+  "build_seconds": 46.61,
+  "dataset": {
+    "base_sha256": "3664758126108e3c57549380d209b63311decfc3ffcfef9f1bc5551db35a75dc",
+    "bytes": {
+      "base": 256000000,
+      "query": 524288
+    },
+    "created_at": "2026-11-01T17:50:14+0000",
+    "dataset": "synth256",
+    "dim": 256,
+    "n": 250000,
+    "notes": "proxy dataset generated on the GPU instance from raw arrays",
+    "nq": 512,
+    "query_sha256": "5b024b879bbfc4850c7621e98a95dbc1cfac9e033faf18145194915344efe6d0",
+    "seed": 7,
+    "truth_sha256": "9acf40c89364df5720216b758613d74c58ff7f139c640ff580a92b285fa0c1f7"
+  },
+  "ef_construction": 200,
+  "ef_search": 64,
+  "finished_at": "2026-11-01T17:53:12+0000",
+  "host": "j-fgztlqbt2re4kacqiklszo6rs2",
+  "lib": "cuvs",
+  "load_seconds": 11.212,
+  "m": 16,
+  "nproc": 128,
+  "observer": "/amd-work/src/build_release/src/observer/seekdb",
+  "observer_log_markers": {
+    "cuvs_build": 0,
+    "cuvs_serve": 0,
+    "deserialized GPU CAGRA snapshot": 0,
+    "lazily built VSAG fallback": 0,
+    "serialized GPU CAGRA snapshot": 0
+  },
+  "observer_log_tail": "Starting seekdb (OceanBase seekdb 1.4.0.0) source revision 1-.\nChange working directory to base dir. path='/work/w-d256-base/run/'\nThe log file is in the directory: '/work/w-d256-base/run/log/'\n",
+  "observer_sha256": "4a7d28f028091eda239187056fbd6f5ca76bd9866c186f8560d9b6de43de47cb",
+  "per_topk": {
+    "10": {
+      "empty_results": 0,
+      "integrity_errors": 0,
+      "ms_per_query": 11.682,
+      "qps": 85.6,
+      "queries": 512,
+      "recall": 0.997266,
+      "seconds": 5.981
+    },
+    "100": {
+      "empty_results": 0,
+      "integrity_errors": 0,
+      "ms_per_query": 11.631,
+      "qps": 85.98,
+      "queries": 512,
+      "recall": 0.937754,
+      "seconds": 5.955
+    }
+  },
+  "qps_geomean": 85.79,
+  "started_at": "2026-11-01T17:51:59+0000",
+  "tag": "d256-base",
+  "topk": [
+    10,
+    100
+  ],
+  "vm_hwm_mb": 3225.7,
+  "vm_rss_mb": 3073.0,
+  "vram_peak_mb": 822.4
+}
