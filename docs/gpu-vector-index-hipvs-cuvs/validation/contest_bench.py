@@ -79,7 +79,9 @@ def free_port():
 
 
 def vector_literal(vec):
-    return "[" + ",".join("%.7g" % float(v) for v in vec) + "]"
+    # "%.9g" round-trips float32 exactly, so the rows the engine actually stores
+    # are bit-identical to the vectors the exact ground truth was computed from.
+    return "[" + ",".join("%.9g" % float(v) for v in vec) + "]"
 
 
 def write_tsv(path, vectors):
@@ -565,46 +567,41 @@ def cmd_compare(args):
         "candidate": {"tag": cand.get("tag"), "dataset": cand.get("dataset", {}).get("dataset")},
         "dataset_speedups": per,
     }
-    if args.pairs:
-        weights = []
-        build_geo = 0.0
-        query_geo = 0.0
-        for spec in args.pairs:
-            name, weight = spec.split(":") if ":" in spec else (spec, "1")
-            weight = float(weight)
-            info = per.get(name)
-            if not info:
-                continue
-            weights.append(weight)
-            build_geo += weight * math.log(info["build_speedup"])
-            qs = [v for k, v in info.items() if k.startswith("qps_speedup_top")]
-            if qs:
-                query_geo += weight * math.log(math.exp(sum(math.log(x) for x in qs) / len(qs)))
-        total = sum(weights) if weights else 1.0
-        if weights:
-            payload["combined"] = {
-                "build_speedup": round(math.exp(build_geo / total), 4),
-                "query_speedup": round(math.exp(query_geo / total), 4),
-            }
-            payload["projected_score"] = score(payload["combined"]["build_speedup"],
-                                               payload["combined"]["query_speedup"])
+    # The contest score is built from B = Bsift^0.4 * Bhidden^0.6 (similarly Q),
+    # so the two datasets are combined by the caller, not here. --combine turns
+    # one dataset pair into the per-dataset B and Q (build speedup, geometric mean
+    # of the Top-10/Top-100 QPS speedups).
+    if args.combine:
+        qs = [v for k, v in per.items() if k.startswith("qps_speedup_top")]
+        bs = per.get("build_speedup")
+        if qs and bs:
+            query_geo = math.exp(sum(math.log(x) for x in qs) / len(qs))
+            payload["combined"] = {"build_speedup": bs, "query_speedup": round(query_geo, 4)}
+            payload["projected_score"] = score(bs, query_geo)
+    # Hard gates from the contest rules: the candidate must stay within 0.005 of
+    # the same-round baseline recall and above the absolute floor, must not lose
+    # more than 10% of the baseline QPS on either top-k, and must keep VRAM within
+    # 1.25x the baseline. The absolute floor is 0.95/0.85 on SIFT250K and
+    # 0.90/0.85 on the hidden set; a proxy dataset uses the hidden floors.
+    dataset_name = base.get("dataset", {}).get("dataset")
+    floor10, floor100 = (0.95, 0.85) if dataset_name == "sift250k" else (0.90, 0.85)
     gates = []
-    for name, info in per.items():
-        for key, delta in info.items():
-            if key.startswith("recall_delta_top"):
-                gates.append({"gate": "%s %s drop<=0.005" % (name, key), "value": delta,
-                              "pass": delta >= -0.005})
-        if "candidate_recall_top10" in info:
-            gates.append({"gate": "%s recall@10 >= 0.95" % name,
-                          "value": info["candidate_recall_top10"],
-                          "pass": info["candidate_recall_top10"] >= 0.95})
-        if "vram_ratio" in info:
-            gates.append({"gate": "%s vram <= 1.25x baseline" % name,
-                          "value": info["vram_ratio"], "pass": info["vram_ratio"] <= 1.25})
-        for key, value in info.items():
-            if key.startswith("qps_speedup_top"):
-                gates.append({"gate": "%s %s >= 0.90" % (name, key), "value": value,
-                              "pass": value >= 0.90})
+    for key, value in per.items():
+        if key.startswith("recall_delta_top"):
+            gates.append({"gate": "%s drop<=0.005" % key, "value": value,
+                          "pass": value >= -0.005})
+        elif key == "candidate_recall_top100":
+            gates.append({"gate": "%s >= %.2f" % (key, floor100), "value": value,
+                          "pass": value >= floor100})
+        elif key == "candidate_recall_top10":
+            gates.append({"gate": "%s >= %.2f" % (key, floor10), "value": value,
+                          "pass": value >= floor10})
+        elif key.startswith("qps_speedup_top"):
+            gates.append({"gate": "%s >= 0.90" % key, "value": value,
+                          "pass": value >= 0.90})
+        elif key == "vram_ratio":
+            gates.append({"gate": "vram <= 1.25x baseline", "value": value,
+                          "pass": value <= 1.25})
     payload["gates"] = gates
     payload["gates_pass"] = all(g["pass"] for g in gates) if gates else None
     text = json.dumps(payload, indent=2, sort_keys=True)
@@ -693,8 +690,8 @@ def main(argv):
     p = sub.add_parser("compare", help="compare candidate against baseline")
     p.add_argument("--baseline", required=True)
     p.add_argument("--candidate", required=True)
-    p.add_argument("--pairs", nargs="*",
-                   help="dataset-name:weight pairs, e.g. sift250k:0.4 synthetic:0.6")
+    p.add_argument("--combine", action="store_true",
+                   help="also report per-dataset B and Q and the projected score")
     p.add_argument("--json")
     p.set_defaults(func=cmd_compare)
 
