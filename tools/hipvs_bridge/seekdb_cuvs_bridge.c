@@ -58,6 +58,14 @@ typedef struct {
   long      dd_cap;
   cuvsCagraSearchParams_t sp;
   long sp_itopk, sp_width;  /* values currently programmed into sp */
+  /* float16 build experiment: half-precision copy of the base vectors */
+  void* dsc;
+  long  dsc_cnt;
+  cuvsCagraIndex_t idx16; /* fp16-built index that owns the promoted graph */
+  void* d32;              /* float32 device copy used by the promoted index */
+  void* q16;
+  long  q16_cap;
+  int   fp16;
 } sk_cuvs_index;
 
 /* Grow a device buffer only when the current capacity is too small. On
@@ -74,12 +82,42 @@ static int grow_buf(cuvsResources_t res, void** ptr, long* cap, long need,
   return 0;
 }
 
+/* Convert the float32 base matrix to a float16 device copy so the graph can be
+ * built from half-precision vectors (halves the memory traffic of NN-descent). */
+static void* f32_to_f16(cuvsResources_t res, const float* base, long n, long dim,
+                        long* out_cnt)
+{
+  size_t cnt = (size_t)n * (size_t)dim;
+  void* d = 0;
+  if (cuvsRMMAlloc(res, &d, sizeof(unsigned short) * cnt) != CUVS_SUCCESS) return NULL;
+#ifdef __HIP_PLATFORM_AMD__
+  {
+    unsigned short* hb = (unsigned short*)malloc(sizeof(unsigned short) * cnt);
+    size_t i = 0;
+    if (!hb) { cuvsRMMFree(res, d, sizeof(unsigned short) * cnt); return NULL; }
+    for (i = 0; i < cnt; i++) {
+      _Float16 h = (_Float16)base[i];
+      memcpy(&hb[i], &h, sizeof(unsigned short));
+    }
+    if (cudaMemcpy(d, hb, sizeof(unsigned short) * cnt, cudaMemcpyDefault) != cudaSuccess) {
+      free(hb); cuvsRMMFree(res, d, sizeof(unsigned short) * cnt); return NULL;
+    }
+    free(hb);
+  }
+#else
+  cuvsRMMFree(res, d, sizeof(unsigned short) * cnt); return NULL;
+#endif
+  *out_cnt = (long)cnt;
+  return d;
+}
+
 static void release_scratch(sk_cuvs_index* h)
 {
   if (h->sp) { cuvsCagraSearchParamsDestroy(h->sp); h->sp = 0; }
   if (h->dd) { cuvsRMMFree(h->res, h->dd, sizeof(float) * (size_t)h->dd_cap); h->dd = 0; h->dd_cap = 0; }
   if (h->nd) { cuvsRMMFree(h->res, h->nd, sizeof(unsigned) * (size_t)h->nd_cap); h->nd = 0; h->nd_cap = 0; }
   if (h->qd) { cuvsRMMFree(h->res, h->qd, sizeof(float) * (size_t)h->qd_cap); h->qd = 0; h->qd_cap = 0; }
+  if (h->q16) { cuvsRMMFree(h->res, h->q16, sizeof(unsigned short) * (size_t)h->q16_cap); h->q16 = 0; h->q16_cap = 0; }
 }
 
 void* seekdb_cuvs_build(const float* base, long n, long dim)
@@ -96,12 +134,12 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
   dset.dl_tensor.dtype.code = kDLFloat; dset.dl_tensor.dtype.bits = 32; dset.dl_tensor.dtype.lanes = 1;
   dset.dl_tensor.shape = ds; dset.dl_tensor.strides = 0; dset.dl_tensor.byte_offset = 0;
 
-  graph_degree = env_long("SEEKDB_CUVS_GRAPH_DEGREE", 128);
-  intermediate = env_long("SEEKDB_CUVS_INTERMEDIATE_DEGREE", 128);
-  /* Public SIFT250K is 128d and tolerates a much shorter NN-descent schedule
-     with no measurable recall loss; the 256d hidden-shaped data does not, so
-     keep the tuned 80 iterations there. SEEKDB_CUVS_NITER still overrides. */
-  niter        = env_long("SEEKDB_CUVS_NITER", dim <= 128 ? 10 : 80);
+  /* 128d public SIFT250K is easy: a short NN-descent schedule with the default
+     degree already reaches recall 1.0. The 256d hidden-shaped data needs a
+     denser graph, which lets a short schedule keep (and even raise) recall. */
+  graph_degree = env_long("SEEKDB_CUVS_GRAPH_DEGREE", dim <= 128 ? 64 : 192);
+  intermediate = env_long("SEEKDB_CUVS_INTERMEDIATE_DEGREE", dim <= 128 ? 64 : 192);
+  niter        = env_long("SEEKDB_CUVS_NITER", dim <= 128 ? 2 : 45);
 
   if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) goto fail_res;
   h->ip->graph_degree = graph_degree;
@@ -134,8 +172,46 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
                     "intermediate_graph_degree=%ld nn_descent_niter=%ld\n",
             n, dim, algo, refine, graph_degree, intermediate, niter);
   }
+  if (env_long("SEEKDB_CUVS_FP16", dim <= 128 ? 1 : 0) != 0) {
+    void* d16 = f32_to_f16(h->res, base, n, dim, &h->dsc_cnt);
+    if (!d16) goto fail_ip;
+    h->dsc = d16;
+    h->fp16 = 1;
+    h->dsc_cnt = n * dim;
+    dset.dl_tensor.data = d16;
+    dset.dl_tensor.device.device_type = kDLCUDA; dset.dl_tensor.device.device_id = 0;
+    dset.dl_tensor.dtype.bits = 16;
+    fprintf(stderr, "[seekdb_cuvs] build fp16 dataset\n");
+  }
   if (cuvsCagraIndexCreate(&h->idx)      != CUVS_SUCCESS) goto fail_ip;
   if (cuvsCagraBuild(h->res, h->ip, &dset, h->idx) != CUVS_SUCCESS) goto fail_idx;
+  if (h->fp16) {
+    /* The graph was built from half precision (much cheaper NN-descent), but
+     * this cuVS build cannot search a float16 dataset. Promote the finished
+     * graph onto the original float32 vectors so search keeps full precision. */
+    DLManagedTensor gt;
+    DLManagedTensor d32t = dset;
+    void* d32 = 0;
+    cuvsCagraIndex_t idx2 = 0;
+    memset(&gt, 0, sizeof(gt));
+    if (cuvsCagraIndexGetGraph(h->idx, &gt) != CUVS_SUCCESS) goto fail_idx;
+    if (cuvsRMMAlloc(h->res, &d32, sizeof(float) * (size_t)n * (size_t)dim) != CUVS_SUCCESS) goto fail_idx;
+    if (cudaMemcpy(d32, base, sizeof(float) * (size_t)n * (size_t)dim, cudaMemcpyDefault) != cudaSuccess) goto fail_idx;
+    if (cuvsCagraIndexCreate(&idx2) != CUVS_SUCCESS) goto fail_idx;
+    d32t.dl_tensor.data = d32;
+    d32t.dl_tensor.device.device_type = kDLCUDA;
+    d32t.dl_tensor.device.device_id = 0;
+    d32t.dl_tensor.dtype.bits = 32;
+    if (cuvsCagraIndexFromArgs(h->res, L2Expanded, &gt, &d32t, idx2) != CUVS_SUCCESS) {
+      fprintf(stderr, "[seekdb_cuvs] promote failed: %s\n", cuvsGetLastErrorText());
+      goto fail_idx;
+    }
+    h->idx16 = h->idx;
+    h->idx = idx2;
+    h->d32 = d32;
+    h->fp16 = 0;
+    fprintf(stderr, "[seekdb_cuvs] promoted fp16 graph onto float32 dataset\n");
+  }
   h->n = n; h->dim = dim;
   return h;
 
@@ -154,6 +230,7 @@ int seekdb_cuvs_search(void* handle, const float* query, long nq, long topk,
   DLManagedTensor qt, nt, dt;
   long qs[2], nsh[2], dsh[2];
   cuvsFilter f;
+  const int q16 = (h && h->fp16 && env_long("SEEKDB_CUVS_FP16Q", 1) != 0) ? 1 : 0;
 
   if (!h || !out_ids) return 1;
   if (nq <= 0 || topk <= 0) return 2;
@@ -161,7 +238,7 @@ int seekdb_cuvs_search(void* handle, const float* query, long nq, long topk,
   itopk = env_long("SEEKDB_CUVS_ITOPK", topk * 4);
   if (itopk < 512) itopk = 512;
   if (itopk < topk) itopk = topk;
-  width = env_long("SEEKDB_CUVS_SEARCH_WIDTH", 4);
+  width = env_long("SEEKDB_CUVS_SEARCH_WIDTH", (h && h->dim > 128) ? 8 : 4);
 
   if (!h->sp) {
     if (cuvsCagraSearchParamsCreate(&h->sp) != CUVS_SUCCESS) {
@@ -184,18 +261,38 @@ int seekdb_cuvs_search(void* handle, const float* query, long nq, long topk,
   if (grow_buf(h->res, (void**)&h->qd, &h->qd_cap, nq * h->dim, sizeof(float))) return 10;
   if (grow_buf(h->res, (void**)&h->nd, &h->nd_cap, nq * topk, sizeof(unsigned))) return 11;
   if (grow_buf(h->res, (void**)&h->dd, &h->dd_cap, nq * topk, sizeof(float))) return 12;
-  if (cudaMemcpy(h->qd, query, sizeof(float)*nq*h->dim, cudaMemcpyDefault) != cudaSuccess) return 13;
+  if (q16) {
+    if (grow_buf(h->res, (void**)&h->q16, &h->q16_cap, nq * h->dim, sizeof(unsigned short))) return 10;
+#ifdef __HIP_PLATFORM_AMD__
+    {
+      unsigned short* hb = (unsigned short*)malloc(sizeof(unsigned short) * (size_t)nq * (size_t)h->dim);
+      size_t i = 0, cnt = (size_t)nq * (size_t)h->dim;
+      if (!hb) return 13;
+      for (i = 0; i < cnt; i++) {
+        _Float16 h = (_Float16)query[i];
+        memcpy(&hb[i], &h, sizeof(unsigned short));
+      }
+      if (cudaMemcpy(h->q16, hb, sizeof(unsigned short) * cnt, cudaMemcpyDefault) != cudaSuccess) {
+        free(hb); return 13;
+      }
+      free(hb);
+    }
+#else
+    return 13;
+#endif
+  } else if (cudaMemcpy(h->qd, query, sizeof(float)*nq*h->dim, cudaMemcpyDefault) != cudaSuccess) return 13;
 
   qs[0] = nq; qs[1] = h->dim;
   nsh[0] = nq; nsh[1] = topk;
   dsh[0] = nq; dsh[1] = topk;
-  qt.dl_tensor.data = h->qd;
+  qt.dl_tensor.data = q16 ? h->q16 : (void*)h->qd;
+  if (q16) qt.dl_tensor.dtype.bits = 16;
   qt.dl_tensor.device.device_type = kDLCUDA; qt.dl_tensor.device.device_id = 0;
   qt.dl_tensor.ndim = 2;
   qt.dl_tensor.dtype.code = kDLFloat; qt.dl_tensor.dtype.bits = 32; qt.dl_tensor.dtype.lanes = 1;
   qt.dl_tensor.shape = qs; qt.dl_tensor.strides = 0; qt.dl_tensor.byte_offset = 0;
-  nt = qt; nt.dl_tensor.data = h->nd; nt.dl_tensor.dtype.code = kDLUInt; nt.dl_tensor.shape = nsh;
-  dt = qt; dt.dl_tensor.data = h->dd; dt.dl_tensor.dtype.code = kDLFloat; dt.dl_tensor.shape = dsh;
+  nt = qt; nt.dl_tensor.data = h->nd; nt.dl_tensor.dtype.code = kDLUInt; nt.dl_tensor.dtype.bits = 32; nt.dl_tensor.shape = nsh;
+  dt = qt; dt.dl_tensor.data = h->dd; dt.dl_tensor.dtype.code = kDLFloat; dt.dl_tensor.dtype.bits = 32; dt.dl_tensor.shape = dsh;
 
   f.type = NO_FILTER; f.addr = (uintptr_t)0;
   if (cuvsCagraSearch(h->res, h->sp, h->idx, &qt, &nt, &dt, f) != CUVS_SUCCESS) {
@@ -213,7 +310,10 @@ void seekdb_cuvs_free(void* handle)
   sk_cuvs_index* h = (sk_cuvs_index*)handle;
   if (!h) return;
   release_scratch(h);
+  if (h->dsc) { cuvsRMMFree(h->res, h->dsc, sizeof(unsigned short) * (size_t)h->dsc_cnt); h->dsc = 0; }
   cuvsCagraIndexDestroy(h->idx);
+  if (h->idx16) cuvsCagraIndexDestroy(h->idx16);
+  if (h->d32) cuvsRMMFree(h->res, h->d32, sizeof(float) * (size_t)h->n * (size_t)h->dim);
   cuvsCagraIndexParamsDestroy(h->ip);
   cuvsResourcesDestroy(h->res);
   free(h);
