@@ -408,9 +408,10 @@ def cmd_run(args):
         if r.returncode != 0:
             raise SystemExit("failed to create table: %s" % r.stderr[-2000:])
         tsv = os.path.join(ds, "base.tsv").replace("'", "\\'")
-        r = observer.sql("load data local infile '%s' into table items fields terminated by "
-                         "'\\t' lines terminated by '\\n' (id,v);" % tsv, database=db,
-                         timeout=3600, local_infile=True)
+        sess = ("set session ob_query_timeout=1000000000; set session ob_trx_timeout=1000000000; ")
+        tsv_sql = "load data local infile '%s' into table items fields "
+        tsv_sql += "terminated by '\\t' lines terminated by '\\n' (id,v);"
+        r = observer.sql(sess + tsv_sql % tsv, database=db, timeout=3600, local_infile=True)
         if r.returncode != 0:
             raise SystemExit("load data failed: %s" % r.stderr[-2000:])
         count = observer.sql("select count(*) from items;", database=db).stdout.strip()
