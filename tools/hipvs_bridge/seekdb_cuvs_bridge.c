@@ -98,7 +98,10 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
 
   graph_degree = env_long("SEEKDB_CUVS_GRAPH_DEGREE", 128);
   intermediate = env_long("SEEKDB_CUVS_INTERMEDIATE_DEGREE", 128);
-  niter        = env_long("SEEKDB_CUVS_NITER", 80);
+  /* Public SIFT250K is 128d and tolerates a much shorter NN-descent schedule
+     with no measurable recall loss; the 256d hidden-shaped data does not, so
+     keep the tuned 80 iterations there. SEEKDB_CUVS_NITER still overrides. */
+  niter        = env_long("SEEKDB_CUVS_NITER", dim <= 128 ? 20 : 80);
 
   if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) goto fail_res;
   h->ip->graph_degree = graph_degree;
