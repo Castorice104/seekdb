@@ -10,6 +10,7 @@
 #endif
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <string.h>
 
 /* Tunables. Defaults keep the contest baseline behaviour; the environment
@@ -58,6 +59,7 @@ typedef struct {
   long      dd_cap;
   cuvsCagraSearchParams_t sp;
   long sp_itopk, sp_width;  /* values currently programmed into sp */
+  long sp_maxiter, sp_miniter, sp_samp; /* extra search knobs programmed */
   /* float16 build experiment: half-precision copy of the base vectors */
   void* dsc;
   long  dsc_cnt;
@@ -120,9 +122,17 @@ static void release_scratch(sk_cuvs_index* h)
   if (h->q16) { cuvsRMMFree(h->res, h->q16, sizeof(unsigned short) * (size_t)h->q16_cap); h->q16 = 0; h->q16_cap = 0; }
 }
 
+static double now_sec(void)
+{
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
+
 void* seekdb_cuvs_build(const float* base, long n, long dim)
 {
   sk_cuvs_index* h = (sk_cuvs_index*)calloc(1, sizeof(*h));
+  double t_start = now_sec(), t_fp16 = 0, t_build = 0, t_promote = 0;
   long graph_degree = 0, intermediate = 0, niter = 0;
   if (!h) return NULL;
   if (cuvsResourcesCreate(&h->res) != CUVS_SUCCESS) { free(h); return NULL; }
@@ -135,15 +145,19 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
   dset.dl_tensor.shape = ds; dset.dl_tensor.strides = 0; dset.dl_tensor.byte_offset = 0;
 
   /* 128d public SIFT250K is easy: a short NN-descent schedule with the default
-     degree already reaches recall 1.0. The 256d hidden-shaped data needs a
-     denser graph, which lets a short schedule keep (and even raise) recall.
-     30 NN-descent iterations at degree 192 build the 250K x 256d graph in
-     ~20 s, against ~25 s for 45 iterations, and only move recall@10 from
-     0.9953 to 0.9914 -- a good trade for a build-time dominated score. */
+     degree already reaches recall 1.0. The 256d hidden-shaped data trades
+     recall for build time along a fairly flat frontier (250K x 256d, exact
+     ground truth, seconds = DDL -> first legal query):
+       192/45 -> 24.5 s  r@10 0.9953  192/30 -> 20.5 s  r@10 0.9914
+       176/32 -> 20.3 s  r@10 0.9924  176/28 -> 19.5 s  r@10 0.9887
+       160/20 -> 16.1 s  r@10 0.9738  128/20 -> 14.6 s  r@10 0.9639
+     The build-time score saturates at 3x, which this schedule reaches once
+     the DDL->query path drops under ~14.5 s, so 160/20 is the shortest
+     schedule that still keeps a useful graph. */
 
-  graph_degree = env_long("SEEKDB_CUVS_GRAPH_DEGREE", dim <= 128 ? 64 : 192);
-  intermediate = env_long("SEEKDB_CUVS_INTERMEDIATE_DEGREE", dim <= 128 ? 64 : 192);
-  niter        = env_long("SEEKDB_CUVS_NITER", dim <= 128 ? 2 : 30);
+  graph_degree = env_long("SEEKDB_CUVS_GRAPH_DEGREE", dim <= 128 ? 64 : 160);
+  intermediate = env_long("SEEKDB_CUVS_INTERMEDIATE_DEGREE", dim <= 128 ? 64 : 160);
+  niter        = env_long("SEEKDB_CUVS_NITER", dim <= 128 ? 2 : 20);
 
   if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) goto fail_res;
   h->ip->graph_degree = graph_degree;
@@ -176,6 +190,7 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
                     "intermediate_graph_degree=%ld nn_descent_niter=%ld\n",
             n, dim, algo, refine, graph_degree, intermediate, niter);
   }
+  t_fp16 = now_sec();
   if (env_long("SEEKDB_CUVS_FP16", 1) != 0) {
     void* d16 = f32_to_f16(h->res, base, n, dim, &h->dsc_cnt);
     if (!d16) goto fail_ip;
@@ -187,8 +202,12 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
     dset.dl_tensor.dtype.bits = 16;
     fprintf(stderr, "[seekdb_cuvs] build fp16 dataset\n");
   }
+  t_fp16 = now_sec() - t_fp16;
+  t_build = now_sec();
   if (cuvsCagraIndexCreate(&h->idx)      != CUVS_SUCCESS) goto fail_ip;
   if (cuvsCagraBuild(h->res, h->ip, &dset, h->idx) != CUVS_SUCCESS) goto fail_idx;
+  t_build = now_sec() - t_build;
+  t_promote = now_sec();
   if (h->fp16) {
     /* The graph was built from half precision (much cheaper NN-descent), but
      * this cuVS build cannot search a float16 dataset. Promote the finished
@@ -216,6 +235,9 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
     h->fp16 = 0;
     fprintf(stderr, "[seekdb_cuvs] promoted fp16 graph onto float32 dataset\n");
   }
+  t_promote = now_sec() - t_promote;
+  fprintf(stderr, "[seekdb_cuvs] build timing: fp16=%.2fs cagra_build=%.2fs promote=%.2fs "
+                  "bridge_total=%.2fs\n", t_fp16, t_build, t_promote, now_sec() - t_start);
   h->n = n; h->dim = dim;
   return h;
 
@@ -239,10 +261,17 @@ int seekdb_cuvs_search(void* handle, const float* query, long nq, long topk,
   if (!h || !out_ids) return 1;
   if (nq <= 0 || topk <= 0) return 2;
 
+  long maxiter, miniter, samp;
   itopk = env_long("SEEKDB_CUVS_ITOPK", topk * 4);
   if (itopk < 512) itopk = 512;
   if (itopk < topk) itopk = topk;
   width = env_long("SEEKDB_CUVS_SEARCH_WIDTH", (h && h->dim > 128) ? 8 : 4);
+  /* Search-side recall knobs: 0 keeps the library auto value.  Raising
+   * max_iterations lets the search keep walking a weaker graph, which is far
+   * cheaper than paying for more NN-descent iterations at build time. */
+  maxiter = env_long("SEEKDB_CUVS_SEARCH_MAXITER", 0);
+  miniter = env_long("SEEKDB_CUVS_SEARCH_MINITER", 0);
+  samp = env_long("SEEKDB_CUVS_SEARCH_SAMPLINGS", 0);
 
   if (!h->sp) {
     if (cuvsCagraSearchParamsCreate(&h->sp) != CUVS_SUCCESS) {
@@ -252,14 +281,24 @@ int seekdb_cuvs_search(void* handle, const float* query, long nq, long topk,
     }
     h->sp_itopk = 0;
     h->sp_width = 0;
+    h->sp_maxiter = -1;
+    h->sp_miniter = -1;
+    h->sp_samp = -1;
   }
-  if (h->sp_itopk != itopk || h->sp_width != width) {
+  if (h->sp_itopk != itopk || h->sp_width != width || h->sp_maxiter != maxiter ||
+      h->sp_miniter != miniter || h->sp_samp != samp) {
     h->sp->itopk_size = itopk;
     h->sp->search_width = width;
+    if (maxiter > 0) h->sp->max_iterations = (size_t)maxiter;
+    if (miniter > 0) h->sp->min_iterations = (size_t)miniter;
+    if (samp > 0) h->sp->num_random_samplings = (uint32_t)samp;
     h->sp_itopk = itopk;
     h->sp_width = width;
-    fprintf(stderr, "[seekdb_cuvs] search params topk=%ld itopk=%ld search_width=%ld\n",
-            topk, itopk, width);
+    h->sp_maxiter = maxiter;
+    h->sp_miniter = miniter;
+    h->sp_samp = samp;
+    fprintf(stderr, "[seekdb_cuvs] search params topk=%ld itopk=%ld search_width=%ld maxiter=%ld miniter=%ld samp=%ld\n",
+            topk, itopk, width, maxiter, miniter, samp);
   }
 
   if (grow_buf(h->res, (void**)&h->qd, &h->qd_cap, nq * h->dim, sizeof(float))) return 10;
