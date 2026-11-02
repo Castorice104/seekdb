@@ -151,13 +151,17 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
        192/45 -> 24.5 s  r@10 0.9953  192/30 -> 20.5 s  r@10 0.9914
        176/32 -> 20.3 s  r@10 0.9924  176/28 -> 19.5 s  r@10 0.9887
        160/20 -> 16.1 s  r@10 0.9738  128/20 -> 14.6 s  r@10 0.9639
-     The build-time score saturates at 3x, which this schedule reaches once
-     the DDL->query path drops under ~14.5 s, so 160/20 is the shortest
-     schedule that still keeps a useful graph. */
+     Iteration count is the only cheap lever: lowering it shortens the build
+     without touching query speed, while lowering the degree both slows the
+     search down and costs recall. Keeping the degree at 192 and cutting the
+     schedule to 12 iterations lands the DDL->query path near 13.5-14 s,
+     which is where the 3x build-time term saturates, at recall 0.973/0.929
+     (degree above 192 with itopk 512 collapses search quality, so 192 is the
+     ceiling). */
 
-  graph_degree = env_long("SEEKDB_CUVS_GRAPH_DEGREE", dim <= 128 ? 64 : 160);
-  intermediate = env_long("SEEKDB_CUVS_INTERMEDIATE_DEGREE", dim <= 128 ? 64 : 160);
-  niter        = env_long("SEEKDB_CUVS_NITER", dim <= 128 ? 2 : 20);
+  graph_degree = env_long("SEEKDB_CUVS_GRAPH_DEGREE", dim <= 128 ? 64 : 192);
+  intermediate = env_long("SEEKDB_CUVS_INTERMEDIATE_DEGREE", dim <= 128 ? 64 : 192);
+  niter        = env_long("SEEKDB_CUVS_NITER", dim <= 128 ? 2 : 12);
 
   if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) goto fail_res;
   h->ip->graph_degree = graph_degree;
